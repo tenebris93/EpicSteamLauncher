@@ -16,7 +16,7 @@
         - ProgramData\Epic\EpicGamesLauncher\Data\Manifests\*.item
         - ProgramData\Epic\UnrealEngineLauncher\LauncherInstalled.dat
     - Auto-generate JSON profiles for installed games.
-    - Wizard can pick from installed games and autofill URL + process guess.
+    - Wizard can pick from installed games and auto-fill URL + process guess.
 
     PHASE 3 ADDITIONS
     -----------------
@@ -25,6 +25,14 @@
         - Prefer a newly started matching process after launch.
         - If StartTime is accessible, prefer the newest process.
         - Optional fallback to any matching process if no "new" one appears.
+
+    PHASE 4 ADDITIONS
+    -----------------
+    - Process Diagnostics Fallback (interactive + profile launch only):
+        - If process name is wrong and we time out, scan for newly started processes after launch.
+        - Prefer candidates whose EXE path is under the profile's InstallLocation (if known).
+        - Allow user to pick the correct process name.
+        - Optionally write the corrected GameProcessName back into the profile JSON.
 
     JSON Dependency:
       - This file expects Newtonsoft.Json to be referenced by the project.
@@ -37,6 +45,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Management;
 using System.Threading;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -57,44 +66,32 @@ namespace EpicSteamLauncher
         private const int ExitWizardFailed = 6;
         private const int ExitImportFailed = 7;
 
-        /// <summary>
-        ///     Folder name where per-game profile JSON files are stored.
-        ///     Stored next to the executable so the tool stays portable.
-        /// </summary>
         private const string ProfilesFolderName = "profiles";
 
-        /// <summary>
-        ///     Default settings applied when profiles omit values or specify invalid ones.
-        /// </summary>
         private static class Defaults
         {
             public const int StartTimeoutSeconds = 60;
             public const int PollIntervalMs = 500;
             public const int LaunchDelayMs = 0;
 
-            // Legacy mode in your original script used Thread.Sleep(5000).
-            // We keep that behavior by default in legacy mode.
             public const int LegacyLaunchDelayMs = 5000;
 
-            // Phase 3: process matching tolerance.
+            // Phase 3/4: process matching tolerance.
             public const int StartTimeToleranceSeconds = 3;
 
             // If no "new" matching process appears, should we accept an existing instance?
             public const bool FallbackToAnyMatchingProcess = true;
+
+            // Phase 4: diagnostics window is same as normal timeout, but we use this to control verbosity/limits.
+            public const int DiagnosticsMaxCandidates = 25;
         }
 
-        /// <summary>
-        ///     Simple model for dynamically numbered menu options.
-        /// </summary>
         private sealed class MenuOption(string label, Func<MenuOutcome> action)
         {
             public string Label { get; } = label ?? throw new ArgumentNullException(nameof(label));
             public Func<MenuOutcome> Action { get; } = action ?? throw new ArgumentNullException(nameof(action));
         }
 
-        /// <summary>
-        ///     Result of running a menu action.
-        /// </summary>
         private readonly struct MenuOutcome
         {
             private MenuOutcome(bool shouldExit, int? lastResultCode)
@@ -125,7 +122,7 @@ namespace EpicSteamLauncher
                 return ShowMainMenu();
             }
 
-            // Legacy mode (backward compatible): exactly 2 args (not flags) = URL + process name.
+            // Legacy: EpicSteamLauncher.exe "<EpicUrl>" <GameExeName>
             if (args.Length == 2 && !IsFlag(args[0]))
             {
                 string epicUrl = args[0]?.Trim();
@@ -136,7 +133,9 @@ namespace EpicSteamLauncher
                     exeName,
                     Defaults.StartTimeoutSeconds,
                     Defaults.PollIntervalMs,
-                    Defaults.LegacyLaunchDelayMs
+                    Defaults.LegacyLaunchDelayMs,
+                    null,
+                    null
                 );
 
                 PauseIfInteractive();
@@ -213,7 +212,7 @@ namespace EpicSteamLauncher
         }
 
         // ---------------------------------------------------------------------
-        // Bootstrap / Main Menu (dynamic numbering)
+        // Bootstrap / Main Menu
         // ---------------------------------------------------------------------
 
         private static void BootstrapProfilesFolder()
@@ -239,7 +238,9 @@ namespace EpicSteamLauncher
                     GameProcessName = "GameProcessNameWithoutExe",
                     StartTimeoutSeconds = Defaults.StartTimeoutSeconds,
                     PollIntervalMs = Defaults.PollIntervalMs,
-                    LaunchDelayMs = Defaults.LaunchDelayMs
+                    LaunchDelayMs = Defaults.LaunchDelayMs,
+                    InstallLocation = "",
+                    LaunchExecutable = ""
                 };
 
                 string json = JsonConvert.SerializeObject(example, Formatting.Indented);
@@ -435,6 +436,10 @@ namespace EpicSteamLauncher
 
             profile.EpicLaunchUrl = profile.EpicLaunchUrl.Trim();
             profile.GameProcessName = NormalizeProcessName(profile.GameProcessName);
+
+            // Optional fields: normalize empty strings.
+            profile.InstallLocation = profile.InstallLocation?.Trim() ?? string.Empty;
+            profile.LaunchExecutable = profile.LaunchExecutable?.Trim() ?? string.Empty;
 
             if (string.IsNullOrWhiteSpace(profile.GameProcessName))
             {
@@ -645,7 +650,11 @@ namespace EpicSteamLauncher
                         GameProcessName = processGuess,
                         StartTimeoutSeconds = Defaults.StartTimeoutSeconds,
                         PollIntervalMs = Defaults.PollIntervalMs,
-                        LaunchDelayMs = Defaults.LaunchDelayMs
+                        LaunchDelayMs = Defaults.LaunchDelayMs,
+
+                        // Phase 4: persist extra info to help diagnostics.
+                        InstallLocation = game.InstallLocation ?? string.Empty,
+                        LaunchExecutable = game.LaunchExecutable ?? string.Empty
                     };
 
                     if (!TryValidateAndNormalizeProfile(profile, out string validationError))
@@ -669,6 +678,11 @@ namespace EpicSteamLauncher
                         Console.WriteLine($"[OK]   Created: {safeName}.json");
                         Console.WriteLine($"       URL:     {profile.EpicLaunchUrl}");
                         Console.WriteLine($"       Process: {profile.GameProcessName}");
+
+                        if (!string.IsNullOrWhiteSpace(profile.InstallLocation))
+                        {
+                            Console.WriteLine($"       Install: {profile.InstallLocation}");
+                        }
                     }
                 }
 
@@ -916,7 +930,7 @@ namespace EpicSteamLauncher
         }
 
         // ---------------------------------------------------------------------
-        // Wizard (Phase 2)
+        // Wizard
         // ---------------------------------------------------------------------
 
         private static void RunWizard()
@@ -929,10 +943,13 @@ namespace EpicSteamLauncher
             Console.WriteLine(profilesDir);
             Console.WriteLine();
 
-            // Definite assignment safety.
             string name = string.Empty;
             string epicUrl = string.Empty;
             string processName = string.Empty;
+
+            // Phase 4 optional fields
+            string installLocation = string.Empty;
+            string launchExecutable = string.Empty;
 
             Console.Write("Pick from installed Epic games? (y/N): ");
             bool pickInstalled = ReadYesNo(true);
@@ -978,11 +995,20 @@ namespace EpicSteamLauncher
                     epicUrl = BuildEpicLaunchUrl(chosen);
                     processName = GuessProcessName(chosen);
 
+                    installLocation = chosen.InstallLocation ?? string.Empty;
+                    launchExecutable = chosen.LaunchExecutable ?? string.Empty;
+
                     Console.WriteLine();
                     Console.WriteLine("Auto-filled values (you can edit them):");
                     Console.WriteLine($"  Profile name: {name}");
                     Console.WriteLine($"  Epic URL:     {epicUrl}");
                     Console.WriteLine($"  Process:      {processName}");
+
+                    if (!string.IsNullOrWhiteSpace(installLocation))
+                    {
+                        Console.WriteLine($"  Install:      {installLocation}");
+                    }
+
                     Console.WriteLine();
 
                     Console.Write("Profile name (press Enter to keep): ");
@@ -1026,6 +1052,13 @@ namespace EpicSteamLauncher
 
                 Console.Write("Game process name (with or without .exe): ");
                 processName = (Console.ReadLine() ?? string.Empty).Trim();
+
+                // Optional metadata (manual entry)
+                Console.Write("Install location (optional, press Enter to skip): ");
+                installLocation = (Console.ReadLine() ?? string.Empty).Trim();
+
+                Console.Write("Launch executable (optional, press Enter to skip): ");
+                launchExecutable = (Console.ReadLine() ?? string.Empty).Trim();
             }
 
             Console.Write($"Start timeout seconds (default {Defaults.StartTimeoutSeconds}): ");
@@ -1044,7 +1077,9 @@ namespace EpicSteamLauncher
                 GameProcessName = processName,
                 StartTimeoutSeconds = timeoutSeconds,
                 PollIntervalMs = pollIntervalMs,
-                LaunchDelayMs = launchDelayMs
+                LaunchDelayMs = launchDelayMs,
+                InstallLocation = installLocation,
+                LaunchExecutable = launchExecutable
             };
 
             if (!TryValidateAndNormalizeProfile(profile, out string validationError))
@@ -1131,6 +1166,12 @@ namespace EpicSteamLauncher
             Console.WriteLine($"Launching profile: {profileName}");
             Console.WriteLine($"Epic URL: {profile.EpicLaunchUrl}");
             Console.WriteLine($"Process:  {profile.GameProcessName}");
+
+            if (!string.IsNullOrWhiteSpace(profile.InstallLocation))
+            {
+                Console.WriteLine($"Install:  {profile.InstallLocation}");
+            }
+
             Console.WriteLine();
 
             return Launch(
@@ -1138,15 +1179,24 @@ namespace EpicSteamLauncher
                 profile.GameProcessName,
                 profile.StartTimeoutSeconds,
                 profile.PollIntervalMs,
-                profile.LaunchDelayMs
+                profile.LaunchDelayMs,
+                profilePath,
+                profile
             );
         }
 
         // ---------------------------------------------------------------------
-        // Phase 3: Core launch logic with improved process selection
+        // Phase 3 + 4: Core launch logic with improved process selection + diagnostics
         // ---------------------------------------------------------------------
 
-        private static int Launch(string epicUrl, string exeName, int timeoutSeconds, int pollIntervalMs, int launchDelayMs)
+        private static int Launch(
+            string epicUrl,
+            string exeName,
+            int timeoutSeconds,
+            int pollIntervalMs,
+            int launchDelayMs,
+            string profilePathForDiagnostics,
+            GameProfile profileForDiagnostics)
         {
             if (string.IsNullOrWhiteSpace(epicUrl) || string.IsNullOrWhiteSpace(exeName))
             {
@@ -1154,13 +1204,13 @@ namespace EpicSteamLauncher
                 return ExitBadArgs;
             }
 
-            // Snapshot currently running PIDs for the target process name BEFORE launching.
-            var baselinePids = CaptureExistingProcessIds(exeName);
+            var baselinePidsByName = CaptureExistingProcessIds(exeName);
 
-            // Record launch time (local time is fine here because Process.StartTime is local time).
+            // Phase 4 diagnostics uses a snapshot of all processes too (if we need it).
+            var baselineAll = CaptureAllProcessStartTimes();
+
             var launchStartLocal = DateTime.Now;
 
-            // Open the Epic URL via a protocol handler.
             try
             {
                 var psi = new ProcessStartInfo(epicUrl)
@@ -1178,7 +1228,6 @@ namespace EpicSteamLauncher
                 return ExitLaunchFailed;
             }
 
-            // Optional delay before scanning for the process.
             if (launchDelayMs > 0)
             {
                 Console.WriteLine($"Waiting {launchDelayMs}ms before scanning for process...");
@@ -1189,37 +1238,24 @@ namespace EpicSteamLauncher
             var poll = TimeSpan.FromMilliseconds(pollIntervalMs <= 0 ? Defaults.PollIntervalMs : pollIntervalMs);
             var deadline = DateTime.UtcNow + timeout;
 
-            // We allow a small tolerance because process StartTime can be very close to the launch moment.
             var minStartTimeLocal = launchStartLocal.AddSeconds(-Defaults.StartTimeToleranceSeconds);
 
             Process fallbackAnyMatch = null;
 
             while (DateTime.UtcNow < deadline)
             {
-                Process[] matches;
-
-                try
-                {
-                    matches = Process.GetProcessesByName(exeName);
-                }
-                catch
-                {
-                    matches = [];
-                }
+                var matches = SafeGetProcessesByName(exeName);
 
                 if (matches.Length > 0)
                 {
-                    // Keep a fallback of "any match" in case no "new" process appears.
-                    // Prefer the newest one if we can read StartTime.
                     fallbackAnyMatch = SelectNewestProcessIfPossible(matches) ?? matches[0];
 
-                    // Prefer processes that were NOT running before we launched (new PID).
-                    var bestNew = SelectBestNewProcess(matches, baselinePids, minStartTimeLocal);
+                    var bestNew = SelectBestNewProcess(matches, baselinePidsByName, minStartTimeLocal);
 
                     if (bestNew != null)
                     {
                         Console.WriteLine($"Game detected (new instance) (PID: {bestNew.Id}). Waiting for exit...");
-                        WaitForExitSafe(bestNew);
+                        WaitForProcessTreeExit(bestNew.Id);
                         return ExitSuccess;
                     }
                 }
@@ -1227,23 +1263,358 @@ namespace EpicSteamLauncher
                 Thread.Sleep(poll);
             }
 
-            // Timeout reached. Optionally, fall back to any matching process.
             if (Defaults.FallbackToAnyMatchingProcess && fallbackAnyMatch != null)
             {
                 Console.WriteLine("WARNING: No new game process was detected before timeout.");
                 Console.WriteLine($"Falling back to existing matching process (PID: {fallbackAnyMatch.Id}). Waiting for exit...");
-                WaitForExitSafe(fallbackAnyMatch);
+                WaitForProcessTreeExit(fallbackAnyMatch.Id);
                 return ExitSuccess;
+            }
+
+            // PHASE 4: Interactive diagnostics fallback only when launched via a profile.
+            if (IsInteractiveConsole() && !string.IsNullOrWhiteSpace(profilePathForDiagnostics) && profileForDiagnostics != null)
+            {
+                Console.WriteLine();
+                Console.WriteLine("Could not detect the game process by name before timeout.");
+                Console.WriteLine("Diagnostics: scanning for newly started processes after launch...");
+                Console.WriteLine();
+
+                string chosenProcessName = RunDiagnosticsPickProcessName(
+                    baselineAll,
+                    launchStartLocal,
+                    minStartTimeLocal,
+                    profileForDiagnostics.InstallLocation
+                );
+
+                if (!string.IsNullOrWhiteSpace(chosenProcessName))
+                {
+                    Console.WriteLine();
+                    Console.WriteLine($"Selected process name: {chosenProcessName}");
+                    Console.Write("Save this process name to the profile? (y/N): ");
+                    bool save = ReadYesNo(true);
+
+                    if (save)
+                    {
+                        TryUpdateProfileProcessName(profilePathForDiagnostics, profileForDiagnostics, chosenProcessName);
+                    }
+
+                    Console.WriteLine();
+                    Console.WriteLine("Re-trying launch using the selected process name...");
+                    Console.WriteLine();
+
+                    // Retry once using the selected name (no diagnostics recursion).
+                    return Launch(
+                        epicUrl,
+                        chosenProcessName,
+                        timeoutSeconds,
+                        pollIntervalMs,
+                        0,
+                        null,
+                        null
+                    );
+                }
             }
 
             Console.WriteLine($"ERROR: Could not find process '{exeName}' before timeout ({timeout.TotalSeconds:0}s).");
             return ExitProcessNotFound;
         }
 
-        /// <summary>
-        ///     Captures existing process IDs for a given process name.
-        ///     Used to distinguish "newly started" instances from existing ones.
-        /// </summary>
+        // ---------------------------------------------------------------------
+        // Phase 4: Diagnostics helpers
+        // ---------------------------------------------------------------------
+
+        private static bool IsInteractiveConsole()
+        {
+            try
+            {
+                // If redirected, we don't want to prompt.
+                return !Console.IsInputRedirected;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static Process[] SafeGetProcessesByName(string exeName)
+        {
+            try
+            {
+                return Process.GetProcessesByName(exeName);
+            }
+            catch
+            {
+                return [];
+            }
+        }
+
+        private static Dictionary<int, DateTime?> CaptureAllProcessStartTimes()
+        {
+            var map = new Dictionary<int, DateTime?>();
+
+            try
+            {
+                foreach (var p in Process.GetProcesses())
+                {
+                    int pid;
+
+                    try
+                    {
+                        pid = p.Id;
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    var start = TryGetStartTimeLocal(p);
+                    map[pid] = start;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return map;
+        }
+
+        private static string RunDiagnosticsPickProcessName(
+            Dictionary<int, DateTime?> baselineAll,
+            DateTime launchStartLocal,
+            DateTime minStartTimeLocal,
+            string installLocationHint)
+        {
+            // Gather candidates: processes that appear "new" compared to baseline OR started after launch.
+            var candidates = CollectNewProcessCandidates(
+                baselineAll,
+                minStartTimeLocal,
+                installLocationHint
+            );
+
+            if (candidates.Count == 0)
+            {
+                Console.WriteLine("No new process candidates found.");
+                Console.WriteLine("This can happen if StartTime/path access is restricted or the game spawns very quickly then exits.");
+                return null;
+            }
+
+            Console.WriteLine("Possible game processes (newly started):");
+            Console.WriteLine("  [0] Cancel");
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                var c = candidates[i];
+                string locTag = c.IsUnderInstallLocation ? " [install]" : "";
+                string timeTag = c.StartTimeLocal.HasValue ? c.StartTimeLocal.Value.ToString("HH:mm:ss") : "??:??:??";
+                Console.WriteLine($"  [{i + 1}] {c.ProcessName} (PID {c.Pid}) {timeTag}{locTag}");
+
+                if (!string.IsNullOrWhiteSpace(c.ExePath))
+                {
+                    Console.WriteLine($"      {c.ExePath}");
+                }
+            }
+
+            Console.WriteLine();
+            Console.Write("Pick the correct process: ");
+            string input = (Console.ReadLine() ?? string.Empty).Trim();
+
+            if (!int.TryParse(input, out int selected))
+            {
+                return null;
+            }
+
+            if (selected == 0)
+            {
+                return null;
+            }
+
+            if (selected < 1 || selected > candidates.Count)
+            {
+                return null;
+            }
+
+            return candidates[selected - 1].ProcessName;
+        }
+
+        private sealed class ProcessCandidate
+        {
+            public int Pid { get; set; }
+            public string ProcessName { get; set; }
+            public DateTime? StartTimeLocal { get; set; }
+            public string ExePath { get; set; }
+            public bool IsUnderInstallLocation { get; set; }
+        }
+
+        private static List<ProcessCandidate> CollectNewProcessCandidates(
+            Dictionary<int, DateTime?> baselineAll,
+            DateTime minStartTimeLocal,
+            string installLocationHint)
+        {
+            string installRoot = NormalizeDirectory(installLocationHint);
+
+            var results = new List<ProcessCandidate>();
+
+            Process[] allNow;
+
+            try
+            {
+                allNow = Process.GetProcesses();
+            }
+            catch
+            {
+                return results;
+            }
+
+            foreach (var p in allNow)
+            {
+                int pid;
+
+                try
+                {
+                    pid = p.Id;
+                }
+                catch
+                {
+                    continue;
+                }
+
+                // Skip processes that definitely existed before.
+                if (baselineAll != null && baselineAll.TryGetValue(pid, out var baselineStart))
+                {
+                    // If baseline start time unknown, we still allow "new" only if the current start time says so.
+                    // Otherwise, skip.
+                    var currentStart = TryGetStartTimeLocal(p);
+
+                    if (baselineStart.HasValue)
+                    {
+                        continue;
+                    }
+
+                    if (currentStart.HasValue && currentStart.Value < minStartTimeLocal)
+                    {
+                        continue;
+                    }
+                }
+
+                var start = TryGetStartTimeLocal(p);
+
+                if (start.HasValue && start.Value < minStartTimeLocal)
+                {
+                    continue;
+                }
+
+                string procName;
+
+                try
+                {
+                    procName = p.ProcessName;
+                }
+                catch
+                {
+                    continue;
+                }
+
+                string exePath = TryGetProcessExePath(p);
+                bool underInstall = IsPathUnderRoot(exePath, installRoot);
+
+                results.Add(
+                    new ProcessCandidate
+                    {
+                        Pid = pid,
+                        ProcessName = procName,
+                        StartTimeLocal = start,
+                        ExePath = exePath,
+                        IsUnderInstallLocation = underInstall
+                    }
+                );
+            }
+
+            // Sort:
+            //  1) Under install location first (if known),
+            //  2) Newest start time,
+            //  3) Higher PID.
+            results = results
+                .OrderByDescending(r => r.IsUnderInstallLocation)
+                .ThenByDescending(r => r.StartTimeLocal ?? DateTime.MinValue)
+                .ThenByDescending(r => r.Pid)
+                .Take(Defaults.DiagnosticsMaxCandidates)
+                .ToList();
+
+            return results;
+        }
+
+        private static string TryGetProcessExePath(Process process)
+        {
+            try
+            {
+                // This may throw if access is denied (common without admin).
+                return process.MainModule?.FileName ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private static string NormalizeDirectory(string dir)
+        {
+            if (string.IsNullOrWhiteSpace(dir))
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                string full = Path.GetFullPath(dir.Trim());
+                return full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private static bool IsPathUnderRoot(string candidatePath, string rootDirNormalized)
+        {
+            if (string.IsNullOrWhiteSpace(candidatePath) || string.IsNullOrWhiteSpace(rootDirNormalized))
+            {
+                return false;
+            }
+
+            try
+            {
+                string full = Path.GetFullPath(candidatePath);
+                return full.StartsWith(rootDirNormalized, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static void TryUpdateProfileProcessName(string profilePath, GameProfile profile, string newProcessName)
+        {
+            try
+            {
+                profile.GameProcessName = NormalizeProcessName(newProcessName);
+
+                // Re-serialize and overwrite.
+                File.WriteAllText(profilePath, JsonConvert.SerializeObject(profile, Formatting.Indented));
+
+                Console.WriteLine("Profile updated successfully.");
+                Console.WriteLine($"Path: {profilePath}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"WARNING: Failed to update profile. {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Phase 3: Process matching helpers
+        // ---------------------------------------------------------------------
+
         private static HashSet<int> CaptureExistingProcessIds(string exeName)
         {
             var set = new HashSet<int>();
@@ -1270,12 +1641,6 @@ namespace EpicSteamLauncher
             return set;
         }
 
-        /// <summary>
-        ///     Selects the best "new" process instance:
-        ///     - PID was not present in baseline.
-        ///     - If StartTime is available, it must be >= minStartTimeLocal (with tolerance).
-        ///     - Prefer the newest StartTime; otherwise, prefer the highest PID (reasonable proxy).
-        /// </summary>
         private static Process SelectBestNewProcess(Process[] matches, HashSet<int> baselinePids, DateTime minStartTimeLocal)
         {
             if (matches == null || matches.Length == 0)
@@ -1305,7 +1670,6 @@ namespace EpicSteamLauncher
 
                 var start = TryGetStartTimeLocal(p);
 
-                // If we can read StartTime, enforce a minimum start time threshold.
                 if (start.HasValue && start.Value < minStartTimeLocal)
                 {
                     continue;
@@ -1319,7 +1683,6 @@ namespace EpicSteamLauncher
                 return null;
             }
 
-            // Prefer candidates with StartTime and pick the newest.
             var withTime = candidates.Where(c => c.StartTimeLocal.HasValue).ToList();
 
             if (withTime.Count > 0)
@@ -1327,7 +1690,6 @@ namespace EpicSteamLauncher
                 return withTime.OrderByDescending(c => c.StartTimeLocal ?? default).First().Proc;
             }
 
-            // Otherwise, choose the highest PID (often correlates with the newest).
             return candidates.OrderByDescending(c =>
                 {
                     try
@@ -1342,9 +1704,6 @@ namespace EpicSteamLauncher
             ).First().Proc;
         }
 
-        /// <summary>
-        ///     If possible, selects the newest process by StartTime; otherwise returns null.
-        /// </summary>
         private static Process SelectNewestProcessIfPossible(Process[] matches)
         {
             var bestTime = DateTime.MinValue;
@@ -1369,9 +1728,6 @@ namespace EpicSteamLauncher
             return best;
         }
 
-        /// <summary>
-        ///     Attempts to read process StartTime (local). This can throw for protected processes.
-        /// </summary>
         private static DateTime? TryGetStartTimeLocal(Process process)
         {
             try
@@ -1384,18 +1740,44 @@ namespace EpicSteamLauncher
             }
         }
 
-        /// <summary>
-        ///     Waits for a process to exit, safely.
-        /// </summary>
-        private static void WaitForExitSafe(Process process)
+        private static void WaitForProcessTreeExit(int rootPid)
         {
-            try
+            var tracked = new HashSet<int> { rootPid };
+
+            while (true)
             {
-                process.WaitForExit();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"WARNING: Unable to wait for process. {ex.GetType().Name}: {ex.Message}");
+                // Expand child tree
+                var current = tracked.ToList();
+
+                foreach (int pid in current)
+                {
+                    foreach (int child in GetChildProcessIds(pid))
+                    {
+                        tracked.Add(child);
+                    }
+                }
+
+                // Remove exited PIDs
+                tracked.RemoveWhere(pid =>
+                    {
+                        try
+                        {
+                            var p = Process.GetProcessById(pid);
+                            return p.HasExited;
+                        }
+                        catch
+                        {
+                            return true;
+                        }
+                    }
+                );
+
+                if (tracked.Count == 0)
+                {
+                    return;
+                }
+
+                Thread.Sleep(500);
             }
         }
 
@@ -1412,6 +1794,10 @@ namespace EpicSteamLauncher
             public int StartTimeoutSeconds { get; set; } = Defaults.StartTimeoutSeconds;
             public int PollIntervalMs { get; set; } = Defaults.PollIntervalMs;
             public int LaunchDelayMs { get; set; } = Defaults.LaunchDelayMs;
+
+            // Phase 4: Optional metadata to improve diagnostics.
+            public string InstallLocation { get; set; } = string.Empty;
+            public string LaunchExecutable { get; set; } = string.Empty;
         }
 
         private readonly struct DiscoveredProfile(string name, string path, GameProfile profile)
@@ -1440,6 +1826,31 @@ namespace EpicSteamLauncher
             Console.WriteLine();
             Console.WriteLine("Legacy:");
             Console.WriteLine("  EpicSteamLauncher.exe \"<EpicLaunchUrl>\" <GameExeName>");
+        }
+
+        private static HashSet<int> GetChildProcessIds(int parentPid)
+        {
+            var children = new HashSet<int>();
+
+            try
+            {
+                using var searcher =
+                    new ManagementObjectSearcher(
+                        $"SELECT ProcessId FROM Win32_Process WHERE ParentProcessId = {parentPid}"
+                    );
+
+                foreach (var obj in searcher.Get())
+                {
+                    int pid = Convert.ToInt32(obj["ProcessId"]);
+                    children.Add(pid);
+                }
+            }
+            catch
+            {
+                // ignore – WMI can fail without admin
+            }
+
+            return children;
         }
 
         private static string NormalizeProcessName(string raw)
@@ -1513,6 +1924,8 @@ Profiles live here:
 
 Notes:
   - GameProcessName should be the process name (with or without .exe).
+  - If the process name is wrong, the tool can help you fix it after a timeout
+    when launching from a profile (interactive mode).
   - You can validate all profiles from the app menu or via:
        EpicSteamLauncher.exe --validate-profiles
 ";
