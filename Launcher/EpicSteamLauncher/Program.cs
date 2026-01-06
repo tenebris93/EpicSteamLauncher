@@ -42,6 +42,7 @@
 
 using System.Diagnostics;
 using System.Management;
+using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -157,7 +158,7 @@ namespace EpicSteamLauncher
             }
 
             token = token.Trim();
-            return token.StartsWith("-", StringComparison.Ordinal) || token.StartsWith("/", StringComparison.Ordinal);
+            return token.StartsWith('-') || token.StartsWith('/');
         }
 
         // ---------------------------------------------------------------------
@@ -167,38 +168,63 @@ namespace EpicSteamLauncher
         private static void BootstrapProfilesFolder()
         {
             string profilesDir = GetProfilesDirectory();
-            Directory.CreateDirectory(profilesDir);
 
-            string readmePath = Path.Combine(profilesDir, "README.txt");
-
-            if (!File.Exists(readmePath))
+            if (!TryEnsureDirectory(profilesDir, out string? dirError))
             {
-                File.WriteAllText(readmePath, BuildProfilesReadmeText(profilesDir));
+                Console.WriteLine("WARNING: Could not create profiles folder (launcher can still run).");
+                Console.WriteLine($"Location: {profilesDir}");
+                Console.WriteLine($"Reason: {dirError}");
+                Console.WriteLine();
+                return;
             }
 
-            string examplePath = Path.Combine(profilesDir, "example.profile.json");
-
-            if (!File.Exists(examplePath))
+            // README + example are optional niceties—don’t fail if these writes don’t work.
+            try
             {
-                var example = new GameProfile
-                {
-                    Name = "ExampleGame",
-                    EpicLaunchUrl = "com.epicgames.launcher://apps/YourGameId?action=launch&silent=true",
-                    GameProcessName = "GameProcessNameWithoutExe",
-                    StartTimeoutSeconds = Defaults.StartTimeoutSeconds,
-                    PollIntervalMs = Defaults.PollIntervalMs,
-                    LaunchDelayMs = Defaults.LaunchDelayMs,
-                    InstallLocation = "",
-                    LaunchExecutable = ""
-                };
+                string readmePath = Path.Combine(profilesDir, "README.txt");
 
-                string json = JsonConvert.SerializeObject(example, Formatting.Indented);
-                File.WriteAllText(examplePath, json);
+                if (!File.Exists(readmePath))
+                {
+                    WriteAllTextAtomic(readmePath, BuildProfilesReadmeText(profilesDir));
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"WARNING: Failed to write README.txt. {ex.GetType().Name}: {ex.Message}");
+            }
+
+            try
+            {
+                string examplePath = Path.Combine(profilesDir, "example.profile.esl");
+
+                if (!File.Exists(examplePath))
+                {
+                    var example = new GameProfile
+                    {
+                        Name = "ExampleGame",
+                        EpicLaunchUrl = "com.epicgames.launcher://apps/YourGameId?action=launch&silent=true",
+                        GameProcessName = "GameProcessNameWithoutExe",
+                        StartTimeoutSeconds = Defaults.StartTimeoutSeconds,
+                        PollIntervalMs = Defaults.PollIntervalMs,
+                        LaunchDelayMs = Defaults.LaunchDelayMs,
+                        InstallLocation = "",
+                        LaunchExecutable = ""
+                    };
+
+                    if (!TryWriteJsonAtomic(examplePath, example, out string? writeErr))
+                    {
+                        Console.WriteLine($"WARNING: Failed to write example.profile.esl. {writeErr}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"WARNING: Failed to write example.profile.esl. {ex.GetType().Name}: {ex.Message}");
             }
 
             Console.WriteLine("EpicSteamLauncher: Profiles folder is ready.");
             Console.WriteLine($"Location: {profilesDir}");
-            Console.WriteLine("Files: README.txt, example.profile.json (created if missing)");
+            Console.WriteLine("Files: README.txt, example.profile.esl (created if missing)");
             Console.WriteLine();
         }
 
@@ -317,11 +343,11 @@ namespace EpicSteamLauncher
                 yield break;
             }
 
-            foreach (string file in Directory.EnumerateFiles(dir, "*.json", SearchOption.TopDirectoryOnly))
+            foreach (string file in Directory.EnumerateFiles(dir, "*.esl", SearchOption.TopDirectoryOnly))
             {
                 string filename = Path.GetFileName(file);
 
-                if (filename.Equals("example.profile.json", StringComparison.OrdinalIgnoreCase))
+                if (filename.Equals("example.profile.esl", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
@@ -539,6 +565,21 @@ namespace EpicSteamLauncher
                 }
 
                 string profilesDir = GetProfilesDirectory();
+
+                if (!TryEnsureDirectory(profilesDir, out string? dirError))
+                {
+                    Console.WriteLine($"ERROR: Could not create profiles folder: {profilesDir}");
+                    Console.WriteLine($"Reason: {dirError}");
+                    return ExitImportFailed;
+                }
+
+                if (!IsDirectoryWritable(profilesDir, out string? whyNotWritable))
+                {
+                    Console.WriteLine($"ERROR: Profiles folder is not writable: {profilesDir}");
+                    Console.WriteLine($"Reason: {whyNotWritable}");
+                    return ExitImportFailed;
+                }
+
                 int created = 0;
                 int skipped = 0;
                 int failed = 0;
@@ -558,7 +599,7 @@ namespace EpicSteamLauncher
                         safeName = "UnknownGame";
                     }
 
-                    string profilePath = Path.Combine(profilesDir, $"{safeName}.json");
+                    string profilePath = Path.Combine(profilesDir, $"{safeName}.esl");
 
                     if (File.Exists(profilePath))
                     {
@@ -594,12 +635,24 @@ namespace EpicSteamLauncher
                         continue;
                     }
 
-                    File.WriteAllText(profilePath, JsonConvert.SerializeObject(profile, Formatting.Indented));
+                    if (!TryWriteJsonAtomic(profilePath, profile, out string? err))
+                    {
+                        failed++;
+
+                        if (writeConsoleReport)
+                        {
+                            Console.WriteLine($"[FAIL] {safeName} ({game.Source})");
+                            Console.WriteLine($"       Reason: Failed to write profile. {err}");
+                        }
+
+                        continue;
+                    }
+
                     created++;
 
                     if (writeConsoleReport)
                     {
-                        Console.WriteLine($"[OK]   Created: {safeName}.json");
+                        Console.WriteLine($"[OK]   Created: {safeName}.esl");
                         Console.WriteLine($"       URL:     {profile.EpicLaunchUrl}");
                         Console.WriteLine($"       Process: {profile.GameProcessName}");
 
@@ -1017,7 +1070,7 @@ namespace EpicSteamLauncher
                 safeFileName = "NewProfile";
             }
 
-            string profilePath = Path.Combine(profilesDir, $"{safeFileName}.json");
+            string profilePath = Path.Combine(profilesDir, $"{safeFileName}.esl");
 
             if (File.Exists(profilePath))
             {
@@ -1033,7 +1086,21 @@ namespace EpicSteamLauncher
                 }
             }
 
-            File.WriteAllText(profilePath, JsonConvert.SerializeObject(profile, Formatting.Indented));
+            if (!IsDirectoryWritable(profilesDir, out string? whyNotWritable))
+            {
+                Console.WriteLine();
+                Console.WriteLine("ERROR: Profiles folder is not writable. Cannot create profile.");
+                Console.WriteLine($"Location: {profilesDir}");
+                Console.WriteLine($"Reason: {whyNotWritable}");
+                return;
+            }
+
+            if (!TryWriteJsonAtomic(profilePath, profile, out string? err))
+            {
+                Console.WriteLine();
+                Console.WriteLine($"ERROR: Failed to save profile. {err}");
+                return;
+            }
 
             Console.WriteLine();
             Console.WriteLine("Profile created:");
@@ -1076,7 +1143,7 @@ namespace EpicSteamLauncher
                 return ExitBadArgs;
             }
 
-            string profilePath = Path.Combine(GetProfilesDirectory(), $"{profileName}.json");
+            string profilePath = Path.Combine(GetProfilesDirectory(), $"{profileName}.esl");
 
             if (!TryLoadAndValidateProfile(profilePath, out var profile, out string? error))
             {
@@ -1133,6 +1200,13 @@ namespace EpicSteamLauncher
 
             try
             {
+                // Validate Epic URL format.
+                if (!IsAllowedEpicUri(epicUrl))
+                {
+                    Console.WriteLine($"ERROR: Invalid Epic launch URL: {epicUrl}");
+                    return ExitBadArgs;
+                }
+
                 var psi = new ProcessStartInfo(epicUrl)
                 {
                     UseShellExecute = true,
@@ -1236,6 +1310,123 @@ namespace EpicSteamLauncher
 
             Console.WriteLine($"ERROR: Could not find process '{exeName}' before timeout ({timeout.TotalSeconds:0}s).");
             return ExitProcessNotFound;
+        }
+
+        // ---------------------------------------------------------------------
+        // Helpers
+        // ---------------------------------------------------------------------
+
+        private static bool TryEnsureDirectory(string path, out string? error)
+        {
+            try
+            {
+                Directory.CreateDirectory(path);
+                error = null;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = $"{ex.GetType().Name}: {ex.Message}";
+                return false;
+            }
+        }
+
+        private static bool IsDirectoryWritable(string path, out string? error)
+        {
+            try
+            {
+                Directory.CreateDirectory(path);
+
+                string probeFile = Path.Combine(path, $".write_probe_{Guid.NewGuid():N}.tmp");
+                File.WriteAllText(probeFile, "probe", new UTF8Encoding(false));
+                File.Delete(probeFile);
+
+                error = null;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = $"{ex.GetType().Name}: {ex.Message}";
+                return false;
+            }
+        }
+
+        /// <summary>
+        ///     Writes text atomically: write temp -> replace/move.
+        ///     Prevents corruption if the process is killed mid-write.
+        /// </summary>
+        private static void WriteAllTextAtomic(string path, string contents)
+        {
+            var encoding = new UTF8Encoding(false);
+
+            string? dir = Path.GetDirectoryName(path);
+
+            if (!string.IsNullOrWhiteSpace(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            string tempPath = path + ".tmp";
+
+            // Write temp first
+            File.WriteAllText(tempPath, contents, encoding);
+
+            // Replace if exists, else move into place
+            if (File.Exists(path))
+            {
+                try
+                {
+                    File.Replace(tempPath, path, null, true);
+                }
+                catch
+                {
+                    // If Replace fails (e.g., different volume, permissions edge case), fall back to delete+move.
+                    File.Delete(path);
+                    File.Move(tempPath, path);
+                }
+            }
+            else
+            {
+                File.Move(tempPath, path);
+            }
+        }
+
+        private static bool TryWriteJsonAtomic<T>(string path, T value, out string? error)
+        {
+            try
+            {
+                string json = JsonConvert.SerializeObject(value, Formatting.Indented);
+                WriteAllTextAtomic(path, json);
+                error = null;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = $"{ex.GetType().Name}: {ex.Message}";
+                return false;
+            }
+        }
+
+        private static bool IsAllowedEpicUri(string uri)
+        {
+            if (!Uri.TryCreate(uri, UriKind.Absolute, out var u))
+            {
+                return false;
+            }
+
+            if (!u.Scheme.Equals("com.epicgames.launcher", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            // com.epicgames.launcher://apps/<App>?action=launch...
+            if (!u.AbsolutePath.StartsWith("/apps/", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            string query = u.Query;
+            return query.Contains("action=launch", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsInteractiveConsole()
@@ -1508,7 +1699,11 @@ namespace EpicSteamLauncher
                 profile.GameProcessName = NormalizeProcessName(newProcessName);
 
                 // Re-serialize and overwrite.
-                File.WriteAllText(profilePath, JsonConvert.SerializeObject(profile, Formatting.Indented));
+                if (!TryWriteJsonAtomic(profilePath, profile, out string? err))
+                {
+                    Console.WriteLine($"WARNING: Failed to update profile. {err}");
+                    return;
+                }
 
                 Console.WriteLine("Profile updated successfully.");
                 Console.WriteLine($"Path: {profilePath}");
@@ -1698,7 +1893,7 @@ namespace EpicSteamLauncher
             Console.WriteLine("  EpicSteamLauncher.exe                      (bootstrap + menu)");
             Console.WriteLine("  EpicSteamLauncher.exe --wizard             (create profile interactively)");
             Console.WriteLine("  EpicSteamLauncher.exe --import-installed   (auto-create profiles from installed Epic games)");
-            Console.WriteLine("  EpicSteamLauncher.exe --profile \"Name\"      (launch profiles/Name.json)");
+            Console.WriteLine("  EpicSteamLauncher.exe --profile \"Name\"      (launch profiles/Name.esl)");
             Console.WriteLine("  EpicSteamLauncher.exe --profile            (select from valid profiles)");
             Console.WriteLine("  EpicSteamLauncher.exe --validate-profiles  (print validation report)");
             Console.WriteLine();
@@ -1813,9 +2008,10 @@ Notes:
         {
             try
             {
-                if (!Console.IsInputRedirected)
+                if (!Console.IsInputRedirected && Environment.UserInteractive)
                 {
-                    Thread.Sleep(250);
+                    Console.WriteLine("Press any key to exit...");
+                    Console.ReadKey(true);
                 }
             }
             catch
