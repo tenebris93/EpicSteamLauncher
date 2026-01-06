@@ -2,9 +2,9 @@
 /shelf/
 /workspace.xml
 # Rider ignored files
-/projectSettingsUpdater.xml
-/.idea.SteamLauncher.iml
 /contentModel.xml
+/.idea.Launcher.iml
+/projectSettingsUpdater.xml
 /modules.xml
 # Ignored default folder with query files
 /queries/
