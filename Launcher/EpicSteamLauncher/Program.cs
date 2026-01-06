@@ -10,30 +10,21 @@
       2) Detect the game process by name.
       3) Wait until the game exits so Steam treats the session as "running".
 
-    Recommended usage (Profiles):
-      - Run with no arguments once to bootstrap:
-            EpicSteamLauncher.exe
-        This creates a "profiles" folder next to the EXE and writes:
-          - profiles/README.txt
-          - profiles/example.profile.json
-        It then shows a menu (it does NOT automatically open Explorer).
+    PHASE 2 ADDITIONS
+    -----------------
+    - Import installed Epic games by reading local launcher data:
+        - ProgramData\Epic\EpicGamesLauncher\Data\Manifests\*.item
+        - ProgramData\Epic\UnrealEngineLauncher\LauncherInstalled.dat
+    - Auto-generate JSON profiles for installed games.
+    - Wizard can pick from installed games and autofill URL + process guess.
 
-      - Create a per-game profile (wizard):
-            EpicSteamLauncher.exe --wizard
-
-      - Import installed Epic games (auto-create profiles):
-            EpicSteamLauncher.exe --import-installed
-
-      - Launch a game via profile (Steam Launch Options):
-            --profile "Fortnite"
-        This loads: profiles/Fortnite.json
-
-      - (Optional) Validate profiles:
-            EpicSteamLauncher.exe --validate-profiles
-
-    Backward compatible usage (Legacy):
-      - Original behavior: (EpicLaunchUrl + process name)
-            EpicSteamLauncher.exe "<EpicLaunchUrl>" <GameExeName>
+    PHASE 3 ADDITIONS
+    -----------------
+    - More reliable process detection:
+        - Snapshot PIDs before launch.
+        - Prefer a newly started matching process after launch.
+        - If StartTime is accessible, prefer the newest process.
+        - Optional fallback to any matching process if no "new" one appears.
 
     JSON Dependency:
       - This file expects Newtonsoft.Json to be referenced by the project.
@@ -84,6 +75,12 @@ namespace EpicSteamLauncher
             // Legacy mode in your original script used Thread.Sleep(5000).
             // We keep that behavior by default in legacy mode.
             public const int LegacyLaunchDelayMs = 5000;
+
+            // Phase 3: process matching tolerance.
+            public const int StartTimeToleranceSeconds = 3;
+
+            // If no "new" matching process appears, should we accept an existing instance?
+            public const bool FallbackToAnyMatchingProcess = true;
         }
 
         /// <summary>
@@ -120,12 +117,8 @@ namespace EpicSteamLauncher
             }
         }
 
-        /// <summary>
-        ///     Entry point for EpicSteamLauncher.
-        /// </summary>
         private static int Main(string[] args)
         {
-            // No args: bootstrap profiles folder + show menu.
             if (args == null || args.Length == 0)
             {
                 BootstrapProfilesFolder();
@@ -150,7 +143,6 @@ namespace EpicSteamLauncher
                 return rc;
             }
 
-            // Flag-based modes.
             string flag = (args[0] ?? string.Empty).Trim();
 
             if (flag.Equals("--wizard", StringComparison.OrdinalIgnoreCase))
@@ -175,7 +167,6 @@ namespace EpicSteamLauncher
             {
                 BootstrapProfilesFolder();
 
-                // Steam usage: --profile "Name"
                 if (args.Length >= 2 && !string.IsNullOrWhiteSpace(args[1]))
                 {
                     string profileName = args[1].Trim().Trim('"');
@@ -184,7 +175,6 @@ namespace EpicSteamLauncher
                     return rc;
                 }
 
-                // Manual usage: --profile  (selector screen)
                 int selectorRc = ProfilesSelectorScreen();
                 PauseIfInteractive();
                 return selectorRc;
@@ -206,7 +196,6 @@ namespace EpicSteamLauncher
                 return rc;
             }
 
-            // Unknown args.
             PrintUsage();
             PauseIfInteractive();
             return ExitBadArgs;
@@ -927,7 +916,7 @@ namespace EpicSteamLauncher
         }
 
         // ---------------------------------------------------------------------
-        // Wizard (Fixed initialization)
+        // Wizard (Phase 2)
         // ---------------------------------------------------------------------
 
         private static void RunWizard()
@@ -940,7 +929,7 @@ namespace EpicSteamLauncher
             Console.WriteLine(profilesDir);
             Console.WriteLine();
 
-            // Initialize up-front to satisfy definite assignment, then fill in from whichever path is taken.
+            // Definite assignment safety.
             string name = string.Empty;
             string epicUrl = string.Empty;
             string processName = string.Empty;
@@ -1022,7 +1011,6 @@ namespace EpicSteamLauncher
                 }
             }
 
-            // Manual entry path (or fallback from "pick installed").
             if (!pickInstalled)
             {
                 Console.Write("Profile name (file name): ");
@@ -1119,7 +1107,7 @@ namespace EpicSteamLauncher
         }
 
         // ---------------------------------------------------------------------
-        // Launch by profile name
+        // Profile launching
         // ---------------------------------------------------------------------
 
         private static int LaunchFromProfileName(string profileName)
@@ -1155,7 +1143,7 @@ namespace EpicSteamLauncher
         }
 
         // ---------------------------------------------------------------------
-        // Core launch logic
+        // Phase 3: Core launch logic with improved process selection
         // ---------------------------------------------------------------------
 
         private static int Launch(string epicUrl, string exeName, int timeoutSeconds, int pollIntervalMs, int launchDelayMs)
@@ -1166,6 +1154,13 @@ namespace EpicSteamLauncher
                 return ExitBadArgs;
             }
 
+            // Snapshot currently running PIDs for the target process name BEFORE launching.
+            var baselinePids = CaptureExistingProcessIds(exeName);
+
+            // Record launch time (local time is fine here because Process.StartTime is local time).
+            var launchStartLocal = DateTime.Now;
+
+            // Open the Epic URL via a protocol handler.
             try
             {
                 var psi = new ProcessStartInfo(epicUrl)
@@ -1183,6 +1178,7 @@ namespace EpicSteamLauncher
                 return ExitLaunchFailed;
             }
 
+            // Optional delay before scanning for the process.
             if (launchDelayMs > 0)
             {
                 Console.WriteLine($"Waiting {launchDelayMs}ms before scanning for process...");
@@ -1193,9 +1189,14 @@ namespace EpicSteamLauncher
             var poll = TimeSpan.FromMilliseconds(pollIntervalMs <= 0 ? Defaults.PollIntervalMs : pollIntervalMs);
             var deadline = DateTime.UtcNow + timeout;
 
+            // We allow a small tolerance because process StartTime can be very close to the launch moment.
+            var minStartTimeLocal = launchStartLocal.AddSeconds(-Defaults.StartTimeToleranceSeconds);
+
+            Process fallbackAnyMatch = null;
+
             while (DateTime.UtcNow < deadline)
             {
-                var matches = Array.Empty<Process>();
+                Process[] matches;
 
                 try
                 {
@@ -1203,32 +1204,199 @@ namespace EpicSteamLauncher
                 }
                 catch
                 {
-                    // ignore
+                    matches = [];
                 }
 
                 if (matches.Length > 0)
                 {
-                    var game = matches[0];
+                    // Keep a fallback of "any match" in case no "new" process appears.
+                    // Prefer the newest one if we can read StartTime.
+                    fallbackAnyMatch = SelectNewestProcessIfPossible(matches) ?? matches[0];
 
-                    Console.WriteLine($"Game detected (PID: {game.Id}). Waiting for exit...");
+                    // Prefer processes that were NOT running before we launched (new PID).
+                    var bestNew = SelectBestNewProcess(matches, baselinePids, minStartTimeLocal);
 
-                    try
+                    if (bestNew != null)
                     {
-                        game.WaitForExit();
+                        Console.WriteLine($"Game detected (new instance) (PID: {bestNew.Id}). Waiting for exit...");
+                        WaitForExitSafe(bestNew);
+                        return ExitSuccess;
                     }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"WARNING: Unable to wait for process. {ex.GetType().Name}: {ex.Message}");
-                    }
-
-                    return ExitSuccess;
                 }
 
                 Thread.Sleep(poll);
             }
 
+            // Timeout reached. Optionally, fall back to any matching process.
+            if (Defaults.FallbackToAnyMatchingProcess && fallbackAnyMatch != null)
+            {
+                Console.WriteLine("WARNING: No new game process was detected before timeout.");
+                Console.WriteLine($"Falling back to existing matching process (PID: {fallbackAnyMatch.Id}). Waiting for exit...");
+                WaitForExitSafe(fallbackAnyMatch);
+                return ExitSuccess;
+            }
+
             Console.WriteLine($"ERROR: Could not find process '{exeName}' before timeout ({timeout.TotalSeconds:0}s).");
             return ExitProcessNotFound;
+        }
+
+        /// <summary>
+        ///     Captures existing process IDs for a given process name.
+        ///     Used to distinguish "newly started" instances from existing ones.
+        /// </summary>
+        private static HashSet<int> CaptureExistingProcessIds(string exeName)
+        {
+            var set = new HashSet<int>();
+
+            try
+            {
+                foreach (var p in Process.GetProcessesByName(exeName))
+                {
+                    try
+                    {
+                        set.Add(p.Id);
+                    }
+                    catch
+                    {
+                        /* ignore */
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return set;
+        }
+
+        /// <summary>
+        ///     Selects the best "new" process instance:
+        ///     - PID was not present in baseline.
+        ///     - If StartTime is available, it must be >= minStartTimeLocal (with tolerance).
+        ///     - Prefer the newest StartTime; otherwise, prefer the highest PID (reasonable proxy).
+        /// </summary>
+        private static Process SelectBestNewProcess(Process[] matches, HashSet<int> baselinePids, DateTime minStartTimeLocal)
+        {
+            if (matches == null || matches.Length == 0)
+            {
+                return null;
+            }
+
+            var candidates = new List<(Process Proc, DateTime? StartTimeLocal)>();
+
+            foreach (var p in matches)
+            {
+                int pid;
+
+                try
+                {
+                    pid = p.Id;
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (baselinePids != null && baselinePids.Contains(pid))
+                {
+                    continue;
+                }
+
+                var start = TryGetStartTimeLocal(p);
+
+                // If we can read StartTime, enforce a minimum start time threshold.
+                if (start.HasValue && start.Value < minStartTimeLocal)
+                {
+                    continue;
+                }
+
+                candidates.Add((p, start));
+            }
+
+            if (candidates.Count == 0)
+            {
+                return null;
+            }
+
+            // Prefer candidates with StartTime and pick the newest.
+            var withTime = candidates.Where(c => c.StartTimeLocal.HasValue).ToList();
+
+            if (withTime.Count > 0)
+            {
+                return withTime.OrderByDescending(c => c.StartTimeLocal ?? default).First().Proc;
+            }
+
+            // Otherwise, choose the highest PID (often correlates with the newest).
+            return candidates.OrderByDescending(c =>
+                {
+                    try
+                    {
+                        return c.Proc.Id;
+                    }
+                    catch
+                    {
+                        return -1;
+                    }
+                }
+            ).First().Proc;
+        }
+
+        /// <summary>
+        ///     If possible, selects the newest process by StartTime; otherwise returns null.
+        /// </summary>
+        private static Process SelectNewestProcessIfPossible(Process[] matches)
+        {
+            var bestTime = DateTime.MinValue;
+            Process best = null;
+
+            foreach (var p in matches)
+            {
+                var st = TryGetStartTimeLocal(p);
+
+                if (!st.HasValue)
+                {
+                    continue;
+                }
+
+                if (st.Value > bestTime)
+                {
+                    bestTime = st.Value;
+                    best = p;
+                }
+            }
+
+            return best;
+        }
+
+        /// <summary>
+        ///     Attempts to read process StartTime (local). This can throw for protected processes.
+        /// </summary>
+        private static DateTime? TryGetStartTimeLocal(Process process)
+        {
+            try
+            {
+                return process.StartTime;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        ///     Waits for a process to exit, safely.
+        /// </summary>
+        private static void WaitForExitSafe(Process process)
+        {
+            try
+            {
+                process.WaitForExit();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"WARNING: Unable to wait for process. {ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         // ---------------------------------------------------------------------
