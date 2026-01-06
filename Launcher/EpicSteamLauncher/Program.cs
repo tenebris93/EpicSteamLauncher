@@ -1,4 +1,4 @@
-﻿/*
+/*
     EpicSteamLauncher
 
     HOW THIS TOOL IS USED (Steam / Steam Link workflow)
@@ -20,6 +20,9 @@
 
       - Create a per-game profile (wizard):
             EpicSteamLauncher.exe --wizard
+
+      - Import installed Epic games (auto-create profiles):
+            EpicSteamLauncher.exe --import-installed
 
       - Launch a game via profile (Steam Launch Options):
             --profile "Fortnite"
@@ -45,6 +48,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace EpicSteamLauncher
 {
@@ -60,6 +64,7 @@ namespace EpicSteamLauncher
         private const int ExitProfileNotFound = 4;
         private const int ExitProfileInvalid = 5;
         private const int ExitWizardFailed = 6;
+        private const int ExitImportFailed = 7;
 
         /// <summary>
         ///     Folder name where per-game profile JSON files are stored.
@@ -84,16 +89,10 @@ namespace EpicSteamLauncher
         /// <summary>
         ///     Simple model for dynamically numbered menu options.
         /// </summary>
-        private sealed class MenuOption
+        private sealed class MenuOption(string label, Func<MenuOutcome> action)
         {
-            public MenuOption(string label, Func<MenuOutcome> action)
-            {
-                Label = label ?? throw new ArgumentNullException(nameof(label));
-                Action = action ?? throw new ArgumentNullException(nameof(action));
-            }
-
-            public string Label { get; }
-            public Func<MenuOutcome> Action { get; }
+            public string Label { get; } = label ?? throw new ArgumentNullException(nameof(label));
+            public Func<MenuOutcome> Action { get; } = action ?? throw new ArgumentNullException(nameof(action));
         }
 
         /// <summary>
@@ -199,15 +198,20 @@ namespace EpicSteamLauncher
                 return rc;
             }
 
+            if (flag.Equals("--import-installed", StringComparison.OrdinalIgnoreCase))
+            {
+                BootstrapProfilesFolder();
+                int rc = ImportInstalledEpicGames(true);
+                PauseIfInteractive();
+                return rc;
+            }
+
             // Unknown args.
             PrintUsage();
             PauseIfInteractive();
             return ExitBadArgs;
         }
 
-        /// <summary>
-        ///     Basic flag detection (supports '-' and '/').
-        /// </summary>
         private static bool IsFlag(string token)
         {
             if (string.IsNullOrWhiteSpace(token))
@@ -223,16 +227,11 @@ namespace EpicSteamLauncher
         // Bootstrap / Main Menu (dynamic numbering)
         // ---------------------------------------------------------------------
 
-        /// <summary>
-        ///     Creates the profiles folder and seeds it with README + example profile (if missing).
-        ///     Does NOT open Explorer automatically (menu provides an option for that).
-        /// </summary>
         private static void BootstrapProfilesFolder()
         {
             string profilesDir = GetProfilesDirectory();
             Directory.CreateDirectory(profilesDir);
 
-            // Write README if missing.
             string readmePath = Path.Combine(profilesDir, "README.txt");
 
             if (!File.Exists(readmePath))
@@ -240,7 +239,6 @@ namespace EpicSteamLauncher
                 File.WriteAllText(readmePath, BuildProfilesReadmeText(profilesDir));
             }
 
-            // Write example profile if missing.
             string examplePath = Path.Combine(profilesDir, "example.profile.json");
 
             if (!File.Exists(examplePath))
@@ -259,23 +257,17 @@ namespace EpicSteamLauncher
                 File.WriteAllText(examplePath, json);
             }
 
-            // Always print path (useful when launched outside a visible console).
             Console.WriteLine("EpicSteamLauncher: Profiles folder is ready.");
             Console.WriteLine($"Location: {profilesDir}");
             Console.WriteLine("Files: README.txt, example.profile.json (created if missing)");
             Console.WriteLine();
         }
 
-        /// <summary>
-        ///     Main menu shown when launched with no args.
-        ///     Option numbers are assigned dynamically so adding/removing options never requires renumbering.
-        /// </summary>
         private static int ShowMainMenu()
         {
-            // Build menu options in display order. Numbers are computed when rendered.
             var options = new List<MenuOption>
             {
-                new MenuOption(
+                new(
                     "Create a profile (wizard)",
                     () =>
                     {
@@ -292,7 +284,7 @@ namespace EpicSteamLauncher
                     }
                 ),
 
-                new MenuOption(
+                new(
                     "Profiles (select to launch)",
                     () =>
                     {
@@ -301,7 +293,16 @@ namespace EpicSteamLauncher
                     }
                 ),
 
-                new MenuOption(
+                new(
+                    "Import installed Epic games (auto-create profiles)",
+                    () =>
+                    {
+                        int rc = ImportInstalledEpicGames(true);
+                        return MenuOutcome.Continue(rc);
+                    }
+                ),
+
+                new(
                     "Open profiles folder",
                     () =>
                     {
@@ -310,7 +311,7 @@ namespace EpicSteamLauncher
                     }
                 ),
 
-                new MenuOption(
+                new(
                     "Validate profiles (report)",
                     () =>
                     {
@@ -319,7 +320,7 @@ namespace EpicSteamLauncher
                     }
                 ),
 
-                new MenuOption("Exit", () => MenuOutcome.Exit())
+                new("Exit", MenuOutcome.Exit)
             };
 
             while (true)
@@ -337,7 +338,6 @@ namespace EpicSteamLauncher
                 string input = (Console.ReadLine() ?? string.Empty).Trim();
                 Console.WriteLine();
 
-                // Invalid selection returns to the menu automatically.
                 if (!int.TryParse(input, out int selected) || selected < 1 || selected > options.Count)
                 {
                     Console.WriteLine("Invalid option. Returning to main menu.");
@@ -347,13 +347,10 @@ namespace EpicSteamLauncher
 
                 var outcome = options[selected - 1].Action();
 
-                // If an action returned a "result code", show a short status line.
-                // ExitSuccess is commonly returned by "Back" / "Cancel" actions.
                 if (outcome.LastResultCode.HasValue)
                 {
                     int rc = outcome.LastResultCode.Value;
 
-                    // Keep this minimal: only print non-success codes, unless you want verbose feedback.
                     if (rc != ExitSuccess)
                     {
                         Console.WriteLine($"Result: Failed (code {rc})");
@@ -369,13 +366,9 @@ namespace EpicSteamLauncher
         }
 
         // ---------------------------------------------------------------------
-        // Profiles: enumeration + validation (single pipeline used everywhere)
+        // Profiles: enumeration + validation
         // ---------------------------------------------------------------------
 
-        /// <summary>
-        ///     Enumerates candidate profile JSON files in the profiles folder.
-        ///     Filters out known non-profiles (example.profile.json).
-        /// </summary>
         private static IEnumerable<string> EnumerateCandidateProfileJsonFiles()
         {
             string dir = GetProfilesDirectory();
@@ -389,7 +382,6 @@ namespace EpicSteamLauncher
             {
                 string filename = Path.GetFileName(file);
 
-                // Ignore the seeded example profile.
                 if (filename.Equals("example.profile.json", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
@@ -399,13 +391,6 @@ namespace EpicSteamLauncher
             }
         }
 
-        /// <summary>
-        ///     Attempts to load + validate + normalize a profile from a JSON file.
-        ///     This is the single validation pipeline used for:
-        ///     A) listing profiles (selector screen)
-        ///     B) running a profile by name (--profile "Name")
-        ///     C) wizard creation (validate before writing)
-        /// </summary>
         private static bool TryLoadAndValidateProfile(string path, out GameProfile profile, out string error)
         {
             profile = null;
@@ -437,9 +422,6 @@ namespace EpicSteamLauncher
             return TryValidateAndNormalizeProfile(profile, out error);
         }
 
-        /// <summary>
-        ///     Validates required fields and normalizes values (applies defaults, strips .exe, etc.).
-        /// </summary>
         private static bool TryValidateAndNormalizeProfile(GameProfile profile, out string error)
         {
             error = null;
@@ -450,7 +432,6 @@ namespace EpicSteamLauncher
                 return false;
             }
 
-            // Required fields.
             if (string.IsNullOrWhiteSpace(profile.EpicLaunchUrl))
             {
                 error = "Missing required field: EpicLaunchUrl";
@@ -472,14 +453,12 @@ namespace EpicSteamLauncher
                 return false;
             }
 
-            // Sanity check (intentionally not strict; future URI formats may exist).
             if (!profile.EpicLaunchUrl.Contains("://"))
             {
                 error = "EpicLaunchUrl does not look like a valid URI (missing '://').";
                 return false;
             }
 
-            // Apply defaults if missing/invalid.
             if (profile.StartTimeoutSeconds <= 0)
             {
                 profile.StartTimeoutSeconds = Defaults.StartTimeoutSeconds;
@@ -498,10 +477,6 @@ namespace EpicSteamLauncher
             return true;
         }
 
-        /// <summary>
-        ///     Returns a list of valid profiles (validated and ready to run).
-        ///     Invalid JSON and invalid profiles are automatically excluded.
-        /// </summary>
         private static List<DiscoveredProfile> GetValidProfiles()
         {
             var results = new List<DiscoveredProfile>();
@@ -516,18 +491,9 @@ namespace EpicSteamLauncher
                 }
             }
 
-            return results
-                .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            return results.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
-        /// <summary>
-        ///     Selector screen that lists valid profiles and optionally launches one.
-        ///     Behavior rules:
-        ///     - [0] is always "Back"
-        ///     - Any invalid input returns to the main menu automatically
-        ///     - Only valid profiles are displayed
-        /// </summary>
         private static int ProfilesSelectorScreen()
         {
             var profiles = GetValidProfiles();
@@ -539,7 +505,7 @@ namespace EpicSteamLauncher
             {
                 Console.WriteLine("No valid profiles found.");
                 Console.WriteLine("Tip: Use 'Create a profile (wizard)' to make one.");
-                return ExitSuccess; // Return to main menu.
+                return ExitSuccess;
             }
 
             Console.WriteLine("  [0] Back");
@@ -551,10 +517,8 @@ namespace EpicSteamLauncher
 
             Console.WriteLine();
             Console.Write("Select a profile number: ");
-
             string input = (Console.ReadLine() ?? string.Empty).Trim();
 
-            // Any invalid input returns to main menu (as requested).
             if (!int.TryParse(input, out int selected))
             {
                 return ExitSuccess;
@@ -573,13 +537,9 @@ namespace EpicSteamLauncher
             string chosenName = profiles[selected - 1].Name;
             Console.WriteLine();
 
-            // Re-use name-based launch path (ensures validation stays consistent).
             return LaunchFromProfileName(chosenName);
         }
 
-        /// <summary>
-        ///     Prints a validation report for all candidate JSON files (valid + invalid with reasons).
-        /// </summary>
         private static int ValidateProfilesReport()
         {
             string dir = GetProfilesDirectory();
@@ -625,18 +585,543 @@ namespace EpicSteamLauncher
             Console.WriteLine();
             Console.WriteLine($"Summary: {validCount} valid, {invalidCount} invalid");
 
-            // Non-zero if there are invalid profiles (useful for manual runs).
             return invalidCount == 0 ? ExitSuccess : ExitProfileInvalid;
         }
 
         // ---------------------------------------------------------------------
-        // Profile launching
+        // Phase 2: Installed Epic games import
         // ---------------------------------------------------------------------
 
-        /// <summary>
-        ///     Launches a specific profile by name (Steam usage: --profile "Name").
-        ///     Always validates before launching.
-        /// </summary>
+        private sealed class EpicInstalledGame
+        {
+            public string DisplayName { get; set; }
+            public string AppName { get; set; }
+            public string InstallLocation { get; set; }
+            public string LaunchExecutable { get; set; }
+            public string Source { get; set; }
+        }
+
+        private static int ImportInstalledEpicGames(bool writeConsoleReport)
+        {
+            try
+            {
+                var games = DiscoverInstalledEpicGames();
+
+                if (games.Count == 0)
+                {
+                    if (writeConsoleReport)
+                    {
+                        Console.WriteLine("No installed Epic games were discovered.");
+                        Console.WriteLine("Tip: Install a game in Epic first, then try again.");
+                    }
+
+                    return ExitProfileNotFound;
+                }
+
+                string profilesDir = GetProfilesDirectory();
+                int created = 0;
+                int skipped = 0;
+                int failed = 0;
+
+                foreach (var game in games.OrderBy(g => g.DisplayName ?? g.AppName ?? string.Empty, StringComparer.OrdinalIgnoreCase))
+                {
+                    string proposedName = !string.IsNullOrWhiteSpace(game.DisplayName)
+                        ? game.DisplayName
+                        : !string.IsNullOrWhiteSpace(game.AppName)
+                            ? game.AppName
+                            : "UnknownGame";
+
+                    string safeName = MakeSafeFileName(proposedName).Trim();
+
+                    if (string.IsNullOrWhiteSpace(safeName))
+                    {
+                        safeName = "UnknownGame";
+                    }
+
+                    string profilePath = Path.Combine(profilesDir, $"{safeName}.json");
+
+                    if (File.Exists(profilePath))
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    string epicUrl = BuildEpicLaunchUrl(game);
+                    string processGuess = GuessProcessName(game);
+
+                    var profile = new GameProfile
+                    {
+                        Name = safeName,
+                        EpicLaunchUrl = epicUrl,
+                        GameProcessName = processGuess,
+                        StartTimeoutSeconds = Defaults.StartTimeoutSeconds,
+                        PollIntervalMs = Defaults.PollIntervalMs,
+                        LaunchDelayMs = Defaults.LaunchDelayMs
+                    };
+
+                    if (!TryValidateAndNormalizeProfile(profile, out string validationError))
+                    {
+                        failed++;
+
+                        if (writeConsoleReport)
+                        {
+                            Console.WriteLine($"[FAIL] {safeName} ({game.Source})");
+                            Console.WriteLine($"       Reason: {validationError}");
+                        }
+
+                        continue;
+                    }
+
+                    File.WriteAllText(profilePath, JsonConvert.SerializeObject(profile, Formatting.Indented));
+                    created++;
+
+                    if (writeConsoleReport)
+                    {
+                        Console.WriteLine($"[OK]   Created: {safeName}.json");
+                        Console.WriteLine($"       URL:     {profile.EpicLaunchUrl}");
+                        Console.WriteLine($"       Process: {profile.GameProcessName}");
+                    }
+                }
+
+                if (writeConsoleReport)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine($"Import summary: {created} created, {skipped} skipped (already existed), {failed} failed");
+                }
+
+                return failed == 0 ? ExitSuccess : ExitImportFailed;
+            }
+            catch (Exception ex)
+            {
+                if (writeConsoleReport)
+                {
+                    Console.WriteLine($"ERROR: Import failed. {ex.GetType().Name}: {ex.Message}");
+                }
+
+                return ExitImportFailed;
+            }
+        }
+
+        private static List<EpicInstalledGame> DiscoverInstalledEpicGames()
+        {
+            var results = new List<EpicInstalledGame>();
+            results.AddRange(ReadEpicItemManifests());
+            results.AddRange(ReadLauncherInstalledDat());
+
+            var deduped = results
+                .GroupBy(
+                    g =>
+                        !string.IsNullOrWhiteSpace(g.AppName)
+                            ? $"APP:{g.AppName.Trim()}"
+                            : $"NAME:{(g.DisplayName ?? string.Empty).Trim()}|LOC:{(g.InstallLocation ?? string.Empty).Trim()}",
+                    StringComparer.OrdinalIgnoreCase
+                )
+                .Select(grp =>
+                    grp.OrderByDescending(x => !string.IsNullOrWhiteSpace(x.LaunchExecutable))
+                        .ThenByDescending(x => !string.IsNullOrWhiteSpace(x.DisplayName))
+                        .First()
+                )
+                .ToList();
+
+            return deduped;
+        }
+
+        private static List<EpicInstalledGame> ReadEpicItemManifests()
+        {
+            var games = new List<EpicInstalledGame>();
+            string manifestsDir = GetEpicManifestsDirectory();
+
+            if (!Directory.Exists(manifestsDir))
+            {
+                return games;
+            }
+
+            foreach (string file in Directory.EnumerateFiles(manifestsDir, "*.item", SearchOption.TopDirectoryOnly))
+            {
+                try
+                {
+                    var obj = JObject.Parse(File.ReadAllText(file));
+
+                    string displayName = ReadString(obj, "DisplayName");
+                    string appName = ReadString(obj, "AppName");
+                    string installLocation = ReadString(obj, "InstallLocation");
+                    string launchExe = ReadString(obj, "LaunchExecutable");
+
+                    if (string.IsNullOrWhiteSpace(displayName))
+                    {
+                        displayName = ReadString(obj, "Metadata", "DisplayName");
+                    }
+
+                    if (string.IsNullOrWhiteSpace(installLocation))
+                    {
+                        installLocation = ReadString(obj, "Install", "InstallLocation");
+                    }
+
+                    games.Add(
+                        new EpicInstalledGame
+                        {
+                            DisplayName = displayName,
+                            AppName = appName,
+                            InstallLocation = installLocation,
+                            LaunchExecutable = launchExe,
+                            Source = $".item ({Path.GetFileName(file)})"
+                        }
+                    );
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+
+            return games;
+        }
+
+        private static List<EpicInstalledGame> ReadLauncherInstalledDat()
+        {
+            var games = new List<EpicInstalledGame>();
+            string path = GetLauncherInstalledDatPath();
+
+            if (!File.Exists(path))
+            {
+                return games;
+            }
+
+            try
+            {
+                var root = JObject.Parse(File.ReadAllText(path));
+
+                if (root["InstallationList"] is not JArray arr)
+                {
+                    return games;
+                }
+
+                foreach (var token in arr)
+                {
+                    if (token is not JObject obj)
+                    {
+                        continue;
+                    }
+
+                    string appName = ReadString(obj, "AppName");
+                    string installLocation = ReadString(obj, "InstallLocation");
+                    string displayName = ReadString(obj, "DisplayName");
+
+                    games.Add(
+                        new EpicInstalledGame
+                        {
+                            DisplayName = displayName,
+                            AppName = appName,
+                            InstallLocation = installLocation,
+                            LaunchExecutable = null,
+                            Source = "LauncherInstalled.dat"
+                        }
+                    );
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return games;
+        }
+
+        private static string BuildEpicLaunchUrl(EpicInstalledGame game)
+        {
+            if (!string.IsNullOrWhiteSpace(game.AppName))
+            {
+                string app = game.AppName.Trim();
+                return $"com.epicgames.launcher://apps/{app}?action=launch&silent=true";
+            }
+
+            return "com.epicgames.launcher://apps/YourGameId?action=launch&silent=true";
+        }
+
+        private static string GuessProcessName(EpicInstalledGame game)
+        {
+            if (!string.IsNullOrWhiteSpace(game.LaunchExecutable))
+            {
+                try
+                {
+                    string exeFile = Path.GetFileName(game.LaunchExecutable.Trim());
+                    return NormalizeProcessName(exeFile);
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(game.DisplayName))
+            {
+                return NormalizeProcessName(game.DisplayName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(game.AppName))
+            {
+                return NormalizeProcessName(game.AppName);
+            }
+
+            return "GameProcessNameWithoutExe";
+        }
+
+        private static string ReadString(JObject obj, params string[] path)
+        {
+            if (obj == null || path == null || path.Length == 0)
+            {
+                return null;
+            }
+
+            JToken current = obj;
+
+            foreach (string part in path)
+            {
+                if (current is not JObject o)
+                {
+                    return null;
+                }
+
+                current = o[part];
+
+                if (current == null)
+                {
+                    return null;
+                }
+            }
+
+            return current.Type == JTokenType.String ? current.Value<string>() : current.ToString();
+        }
+
+        private static string GetEpicManifestsDirectory()
+        {
+            string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            return Path.Combine(programData, "Epic", "EpicGamesLauncher", "Data", "Manifests");
+        }
+
+        private static string GetLauncherInstalledDatPath()
+        {
+            string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            return Path.Combine(programData, "Epic", "UnrealEngineLauncher", "LauncherInstalled.dat");
+        }
+
+        private static string MakeSafeFileName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return string.Empty;
+            }
+
+            char[] invalid = Path.GetInvalidFileNameChars();
+            char[] chars = name.Select(c => invalid.Contains(c) ? '_' : c).ToArray();
+
+            string cleaned = new string(chars).Trim();
+            cleaned = cleaned.Replace(':', '_').Replace('/', '_').Replace('\\', '_');
+
+            if (cleaned.Length > 80)
+            {
+                cleaned = cleaned.Substring(0, 80).Trim();
+            }
+
+            return cleaned;
+        }
+
+        // ---------------------------------------------------------------------
+        // Wizard (Fixed initialization)
+        // ---------------------------------------------------------------------
+
+        private static void RunWizard()
+        {
+            string profilesDir = GetProfilesDirectory();
+
+            Console.WriteLine("EpicSteamLauncher - Profile Wizard");
+            Console.WriteLine("----------------------------------");
+            Console.WriteLine("This will create a JSON profile in:");
+            Console.WriteLine(profilesDir);
+            Console.WriteLine();
+
+            // Initialize up-front to satisfy definite assignment, then fill in from whichever path is taken.
+            string name = string.Empty;
+            string epicUrl = string.Empty;
+            string processName = string.Empty;
+
+            Console.Write("Pick from installed Epic games? (y/N): ");
+            bool pickInstalled = ReadYesNo(true);
+
+            if (pickInstalled)
+            {
+                var installed = DiscoverInstalledEpicGames()
+                    .OrderBy(g => g.DisplayName ?? g.AppName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (installed.Count == 0)
+                {
+                    Console.WriteLine("No installed Epic games were discovered. Switching to manual entry.");
+                    Console.WriteLine();
+                    pickInstalled = false;
+                }
+                else
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("Installed Epic games:");
+                    Console.WriteLine("  [0] Cancel / Back");
+
+                    for (int i = 0; i < installed.Count; i++)
+                    {
+                        string label = installed[i].DisplayName ?? installed[i].AppName ?? "Unknown";
+                        Console.WriteLine($"  [{i + 1}] {label}");
+                    }
+
+                    Console.WriteLine();
+                    Console.Write("Select a game number: ");
+                    string input = (Console.ReadLine() ?? string.Empty).Trim();
+
+                    if (!int.TryParse(input, out int choice) || choice < 0 || choice > installed.Count || choice == 0)
+                    {
+                        Console.WriteLine("Wizard cancelled.");
+                        return;
+                    }
+
+                    var chosen = installed[choice - 1];
+
+                    string proposedName = chosen.DisplayName ?? chosen.AppName ?? "NewProfile";
+                    name = MakeSafeFileName(proposedName);
+                    epicUrl = BuildEpicLaunchUrl(chosen);
+                    processName = GuessProcessName(chosen);
+
+                    Console.WriteLine();
+                    Console.WriteLine("Auto-filled values (you can edit them):");
+                    Console.WriteLine($"  Profile name: {name}");
+                    Console.WriteLine($"  Epic URL:     {epicUrl}");
+                    Console.WriteLine($"  Process:      {processName}");
+                    Console.WriteLine();
+
+                    Console.Write("Profile name (press Enter to keep): ");
+                    string nameEdit = (Console.ReadLine() ?? string.Empty).Trim();
+
+                    if (!string.IsNullOrWhiteSpace(nameEdit))
+                    {
+                        name = nameEdit.Trim();
+                    }
+
+                    Console.Write("Epic launch URL (press Enter to keep): ");
+                    string urlEdit = (Console.ReadLine() ?? string.Empty).Trim();
+
+                    if (!string.IsNullOrWhiteSpace(urlEdit))
+                    {
+                        epicUrl = urlEdit.Trim();
+                    }
+
+                    Console.Write("Game process name (press Enter to keep): ");
+                    string procEdit = (Console.ReadLine() ?? string.Empty).Trim();
+
+                    if (!string.IsNullOrWhiteSpace(procEdit))
+                    {
+                        processName = procEdit.Trim();
+                    }
+                }
+            }
+
+            // Manual entry path (or fallback from "pick installed").
+            if (!pickInstalled)
+            {
+                Console.Write("Profile name (file name): ");
+                name = (Console.ReadLine() ?? string.Empty).Trim();
+
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    throw new InvalidOperationException("Profile name cannot be empty.");
+                }
+
+                Console.Write("Epic launch URL: ");
+                epicUrl = (Console.ReadLine() ?? string.Empty).Trim();
+
+                Console.Write("Game process name (with or without .exe): ");
+                processName = (Console.ReadLine() ?? string.Empty).Trim();
+            }
+
+            Console.Write($"Start timeout seconds (default {Defaults.StartTimeoutSeconds}): ");
+            int timeoutSeconds = ReadIntOrDefault(Defaults.StartTimeoutSeconds);
+
+            Console.Write($"Poll interval ms (default {Defaults.PollIntervalMs}): ");
+            int pollIntervalMs = ReadIntOrDefault(Defaults.PollIntervalMs);
+
+            Console.Write($"Launch delay ms before scanning (default {Defaults.LaunchDelayMs}): ");
+            int launchDelayMs = ReadIntOrDefault(Defaults.LaunchDelayMs);
+
+            var profile = new GameProfile
+            {
+                Name = name,
+                EpicLaunchUrl = epicUrl,
+                GameProcessName = processName,
+                StartTimeoutSeconds = timeoutSeconds,
+                PollIntervalMs = pollIntervalMs,
+                LaunchDelayMs = launchDelayMs
+            };
+
+            if (!TryValidateAndNormalizeProfile(profile, out string validationError))
+            {
+                throw new InvalidOperationException($"Profile is invalid: {validationError}");
+            }
+
+            string safeFileName = MakeSafeFileName(profile.Name);
+
+            if (string.IsNullOrWhiteSpace(safeFileName))
+            {
+                safeFileName = "NewProfile";
+            }
+
+            string profilePath = Path.Combine(profilesDir, $"{safeFileName}.json");
+
+            if (File.Exists(profilePath))
+            {
+                Console.WriteLine();
+                Console.WriteLine($"WARNING: A profile named '{safeFileName}' already exists.");
+                Console.Write("Overwrite it? (y/N): ");
+                bool overwrite = ReadYesNo(true);
+
+                if (!overwrite)
+                {
+                    Console.WriteLine("Wizard cancelled (no changes made).");
+                    return;
+                }
+            }
+
+            File.WriteAllText(profilePath, JsonConvert.SerializeObject(profile, Formatting.Indented));
+
+            Console.WriteLine();
+            Console.WriteLine("Profile created:");
+            Console.WriteLine(profilePath);
+            Console.WriteLine();
+            Console.WriteLine("Steam Launch Options to use:");
+            Console.WriteLine($"  --profile \"{safeFileName}\"");
+            Console.WriteLine();
+
+            Console.Write("Open profiles folder now? (y/N): ");
+
+            if (ReadYesNo(true))
+            {
+                TryOpenFolderInExplorer(profilesDir);
+            }
+        }
+
+        private static bool ReadYesNo(bool defaultNo)
+        {
+            string input = (Console.ReadLine() ?? string.Empty).Trim();
+
+            if (string.IsNullOrWhiteSpace(input))
+            {
+                return !defaultNo;
+            }
+
+            return input.Equals("y", StringComparison.OrdinalIgnoreCase) ||
+                   input.Equals("yes", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // ---------------------------------------------------------------------
+        // Launch by profile name
+        // ---------------------------------------------------------------------
+
         private static int LaunchFromProfileName(string profileName)
         {
             if (string.IsNullOrWhiteSpace(profileName))
@@ -645,7 +1130,6 @@ namespace EpicSteamLauncher
                 return ExitBadArgs;
             }
 
-            // profiles/<Name>.json
             string profilePath = Path.Combine(GetProfilesDirectory(), $"{profileName}.json");
 
             if (!TryLoadAndValidateProfile(profilePath, out var profile, out string error))
@@ -674,13 +1158,6 @@ namespace EpicSteamLauncher
         // Core launch logic
         // ---------------------------------------------------------------------
 
-        /// <summary>
-        ///     Core launch routine:
-        ///     1) Opens the Epic URL using the system shell.
-        ///     2) Waits (optional) before scanning for the process.
-        ///     3) Polls until the process appears (with timeout).
-        ///     4) Waits for the game process to exit.
-        /// </summary>
         private static int Launch(string epicUrl, string exeName, int timeoutSeconds, int pollIntervalMs, int launchDelayMs)
         {
             if (string.IsNullOrWhiteSpace(epicUrl) || string.IsNullOrWhiteSpace(exeName))
@@ -689,7 +1166,6 @@ namespace EpicSteamLauncher
                 return ExitBadArgs;
             }
 
-            // Open the Epic URL via protocol handler.
             try
             {
                 var psi = new ProcessStartInfo(epicUrl)
@@ -707,14 +1183,12 @@ namespace EpicSteamLauncher
                 return ExitLaunchFailed;
             }
 
-            // Optional delay before scanning for process.
             if (launchDelayMs > 0)
             {
                 Console.WriteLine($"Waiting {launchDelayMs}ms before scanning for process...");
                 Thread.Sleep(launchDelayMs);
             }
 
-            // Poll for the process until it appears or timeout is reached.
             var timeout = TimeSpan.FromSeconds(timeoutSeconds <= 0 ? Defaults.StartTimeoutSeconds : timeoutSeconds);
             var poll = TimeSpan.FromMilliseconds(pollIntervalMs <= 0 ? Defaults.PollIntervalMs : pollIntervalMs);
             var deadline = DateTime.UtcNow + timeout;
@@ -729,13 +1203,11 @@ namespace EpicSteamLauncher
                 }
                 catch
                 {
-                    // Ignore and keep retrying; process enumeration can transiently fail.
+                    // ignore
                 }
 
                 if (matches.Length > 0)
                 {
-                    // NOTE: This "first match wins" approach is intentionally conservative for this phase.
-                    // Phase 2 can improve this to pick the newest process started after launch.
                     var game = matches[0];
 
                     Console.WriteLine($"Game detected (PID: {game.Id}). Waiting for exit...");
@@ -760,171 +1232,32 @@ namespace EpicSteamLauncher
         }
 
         // ---------------------------------------------------------------------
-        // Wizard
-        // ---------------------------------------------------------------------
-
-        /// <summary>
-        ///     Wizard that creates a single per-game profile JSON file.
-        ///     Validation is performed BEFORE writing the file to disk.
-        /// </summary>
-        private static void RunWizard()
-        {
-            string profilesDir = GetProfilesDirectory();
-
-            Console.WriteLine("EpicSteamLauncher - Profile Wizard");
-            Console.WriteLine("----------------------------------");
-            Console.WriteLine("This will create a JSON profile in:");
-            Console.WriteLine(profilesDir);
-            Console.WriteLine();
-
-            Console.Write("Profile name (file name): ");
-            string name = (Console.ReadLine() ?? string.Empty).Trim();
-
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                throw new InvalidOperationException("Profile name cannot be empty.");
-            }
-
-            Console.Write("Epic launch URL: ");
-            string epicUrl = (Console.ReadLine() ?? string.Empty).Trim();
-
-            Console.Write("Game process name (with or without .exe): ");
-            string processName = (Console.ReadLine() ?? string.Empty).Trim();
-
-            Console.Write($"Start timeout seconds (default {Defaults.StartTimeoutSeconds}): ");
-            int timeoutSeconds = ReadIntOrDefault(Defaults.StartTimeoutSeconds);
-
-            Console.Write($"Poll interval ms (default {Defaults.PollIntervalMs}): ");
-            int pollIntervalMs = ReadIntOrDefault(Defaults.PollIntervalMs);
-
-            Console.Write($"Launch delay ms before scanning (default {Defaults.LaunchDelayMs}): ");
-            int launchDelayMs = ReadIntOrDefault(Defaults.LaunchDelayMs);
-
-            var profile = new GameProfile
-            {
-                Name = name,
-                EpicLaunchUrl = epicUrl,
-                GameProcessName = processName,
-                StartTimeoutSeconds = timeoutSeconds,
-                PollIntervalMs = pollIntervalMs,
-                LaunchDelayMs = launchDelayMs
-            };
-
-            // Validate/normalize before saving.
-            if (!TryValidateAndNormalizeProfile(profile, out string validationError))
-            {
-                throw new InvalidOperationException($"Profile is invalid: {validationError}");
-            }
-
-            string profilePath = Path.Combine(profilesDir, $"{name}.json");
-
-            // Avoid accidental overwrite without warning.
-            if (File.Exists(profilePath))
-            {
-                Console.WriteLine();
-                Console.WriteLine($"WARNING: A profile named '{name}' already exists.");
-                Console.Write("Overwrite it? (y/N): ");
-                string overwrite = (Console.ReadLine() ?? string.Empty).Trim();
-
-                if (!overwrite.Equals("y", StringComparison.OrdinalIgnoreCase) &&
-                    !overwrite.Equals("yes", StringComparison.OrdinalIgnoreCase))
-                {
-                    Console.WriteLine("Wizard cancelled (no changes made).");
-                    return;
-                }
-            }
-
-            string json = JsonConvert.SerializeObject(profile, Formatting.Indented);
-            File.WriteAllText(profilePath, json);
-
-            Console.WriteLine();
-            Console.WriteLine("Profile created:");
-            Console.WriteLine(profilePath);
-            Console.WriteLine();
-            Console.WriteLine("Steam Launch Options to use:");
-            Console.WriteLine($"  --profile \"{name}\"");
-            Console.WriteLine();
-
-            Console.Write("Open profiles folder now? (y/N): ");
-            string open = (Console.ReadLine() ?? string.Empty).Trim();
-
-            if (open.Equals("y", StringComparison.OrdinalIgnoreCase) || open.Equals("yes", StringComparison.OrdinalIgnoreCase))
-            {
-                TryOpenFolderInExplorer(profilesDir);
-            }
-        }
-
-        // ---------------------------------------------------------------------
         // Models / Helpers
         // ---------------------------------------------------------------------
 
-        /// <summary>
-        ///     Profile schema stored as JSON.
-        ///     This phase keeps it intentionally simple.
-        /// </summary>
         private sealed class GameProfile
         {
-            /// <summary>
-            ///     Friendly name for the profile. (Wizard uses this as the filename.)
-            /// </summary>
             public string Name { get; set; }
-
-            /// <summary>
-            ///     Epic Games launch URL opened via shell.
-            ///     Example: com.epicgames.launcher://apps/YourGameId?action=launch&silent=true
-            /// </summary>
             public string EpicLaunchUrl { get; set; }
-
-            /// <summary>
-            ///     Process name to wait for (with or without ".exe").
-            ///     Note: Process.GetProcessesByName expects the name without ".exe".
-            /// </summary>
             public string GameProcessName { get; set; }
 
-            /// <summary>
-            ///     Maximum time to wait for the game process to appear.
-            /// </summary>
             public int StartTimeoutSeconds { get; set; } = Defaults.StartTimeoutSeconds;
-
-            /// <summary>
-            ///     How often to poll for the process.
-            /// </summary>
             public int PollIntervalMs { get; set; } = Defaults.PollIntervalMs;
-
-            /// <summary>
-            ///     Optional delay after opening the Epic URL before scanning for the process.
-            /// </summary>
             public int LaunchDelayMs { get; set; } = Defaults.LaunchDelayMs;
         }
 
-        /// <summary>
-        ///     Small container representing a discovered, validated profile.
-        /// </summary>
-        private readonly struct DiscoveredProfile
+        private readonly struct DiscoveredProfile(string name, string path, GameProfile profile)
         {
-            public DiscoveredProfile(string name, string path, GameProfile profile)
-            {
-                Name = name;
-                Path = path;
-                Profile = profile;
-            }
-
-            public string Name { get; }
-            public string Path { get; }
-            public GameProfile Profile { get; }
+            public string Name { get; } = name;
+            public string Path { get; } = path;
+            public GameProfile Profile { get; } = profile;
         }
 
-        /// <summary>
-        ///     Returns the absolute path to the profiles folder next to the EXE.
-        /// </summary>
         private static string GetProfilesDirectory()
         {
             return Path.Combine(AppContext.BaseDirectory, ProfilesFolderName);
         }
 
-        /// <summary>
-        ///     Prints usage instructions.
-        /// </summary>
         private static void PrintUsage()
         {
             Console.WriteLine("EpicSteamLauncher Usage:");
@@ -932,6 +1265,7 @@ namespace EpicSteamLauncher
             Console.WriteLine("Profiles:");
             Console.WriteLine("  EpicSteamLauncher.exe                      (bootstrap + menu)");
             Console.WriteLine("  EpicSteamLauncher.exe --wizard             (create profile interactively)");
+            Console.WriteLine("  EpicSteamLauncher.exe --import-installed   (auto-create profiles from installed Epic games)");
             Console.WriteLine("  EpicSteamLauncher.exe --profile \"Name\"      (launch profiles/Name.json)");
             Console.WriteLine("  EpicSteamLauncher.exe --profile            (select from valid profiles)");
             Console.WriteLine("  EpicSteamLauncher.exe --validate-profiles  (print validation report)");
@@ -940,9 +1274,6 @@ namespace EpicSteamLauncher
             Console.WriteLine("  EpicSteamLauncher.exe \"<EpicLaunchUrl>\" <GameExeName>");
         }
 
-        /// <summary>
-        ///     Normalizes a raw process name to a value compatible with Process.GetProcessesByName().
-        /// </summary>
         private static string NormalizeProcessName(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw))
@@ -952,7 +1283,6 @@ namespace EpicSteamLauncher
 
             string name = raw.Trim();
 
-            // Process.GetProcessesByName expects the name without ".exe".
             if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
             {
                 name = name.Substring(0, name.Length - 4);
@@ -961,9 +1291,6 @@ namespace EpicSteamLauncher
             return name;
         }
 
-        /// <summary>
-        ///     Reads an integer from stdin, returning a default on blank/invalid input.
-        /// </summary>
         private static int ReadIntOrDefault(int defaultValue)
         {
             string input = (Console.ReadLine() ?? string.Empty).Trim();
@@ -976,10 +1303,6 @@ namespace EpicSteamLauncher
             return int.TryParse(input, out int value) ? value : defaultValue;
         }
 
-        /// <summary>
-        ///     Attempts to open a folder path in Windows Explorer.
-        ///     Non-fatal if it fails (restricted environment).
-        /// </summary>
         private static void TryOpenFolderInExplorer(string folderPath)
         {
             try
@@ -994,13 +1317,10 @@ namespace EpicSteamLauncher
             }
             catch
             {
-                // Intentionally ignored. We always print the path to the console.
+                // ignored
             }
         }
 
-        /// <summary>
-        ///     Content for profiles/README.txt created during bootstrap.
-        /// </summary>
         private static string BuildProfilesReadmeText(string profilesDir)
         {
             return
@@ -1012,7 +1332,10 @@ Quick Start:
   1) Create a profile:
        EpicSteamLauncher.exe --wizard
 
-  2) In Steam:
+  2) (Optional) Auto-create profiles for installed Epic games:
+       EpicSteamLauncher.exe --import-installed
+
+  3) In Steam:
        - Add EpicSteamLauncher.exe as a Non-Steam Game
        - Set Launch Options to:
            --profile ""YourProfileName""
@@ -1027,10 +1350,6 @@ Notes:
 ";
         }
 
-        /// <summary>
-        ///     Light pause so console output is readable when launched manually.
-        ///     Avoids forcing a "Press any key" prompt when launched from Steam.
-        /// </summary>
         private static void PauseIfInteractive()
         {
             try
@@ -1042,7 +1361,7 @@ Notes:
             }
             catch
             {
-                // Ignore console capability exceptions.
+                // ignore
             }
         }
     }
