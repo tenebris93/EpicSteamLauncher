@@ -1,0 +1,64 @@
+# PR/CI validation workflow for EpicSteamLauncher.
+# Adapted from Headwall-API-Server and adjusted for this repo layout where
+# the .NET solution is under Launcher/.
+
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'Launcher/**'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+concurrency:
+  group: pr-dotnet-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          lfs: false
+
+      - name: Validate YAML (.github/)
+        uses: GrantBirki/json-yaml-validate@v4.0.0
+        with:
+          use_gitignore: false
+          base_dir: .github/
+          comment: true
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+          cache: true
+          cache-dependency-path: |
+            Launcher/**/*.csproj
+            Launcher/**/*.props
+            Launcher/**/*.targets
+            Launcher/**/*.sln
+            Launcher/**/packages.lock.json
+
+      - name: Restore
+        run: dotnet restore ./Launcher/EpicSteamLauncher.sln
+
+      - name: Build (Release)
+        run: dotnet build ./Launcher/EpicSteamLauncher.sln -c Release --no-restore
+
+      - name: Test (Release)
+        run: dotnet test ./Launcher/EpicSteamLauncher.Tests/EpicSteamLauncher.Tests.csproj -c Release --no-build --no-restore
+
+      - name: NuGet vulnerability report (including transitive)
+        run: dotnet list ./Launcher/EpicSteamLauncher.sln package --vulnerable --include-transitive
+
