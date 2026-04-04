@@ -1,0 +1,133 @@
+<!-- Directory.Build.targets -->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <!--
+    Internal semantic versioning pipeline:
+    1) Capture branch + latest version tag (major.minor or major.minor.patch).
+    2) Normalize to major.minor base tag.
+    3) Compute patch as commit count since the latest matching tag.
+    4) Populate Version/AssemblyVersion/FileVersion/InformationalVersion.
+  -->
+  <PropertyGroup>
+    <!-- Global switch for local troubleshooting; true by default. -->
+    <GitSemVerEnabled Condition="'$(GitSemVerEnabled)'==''">true</GitSemVerEnabled>
+    <!-- Used when no historical version tag can be discovered. -->
+    <GitSemVerDefaultTag>0.0</GitSemVerDefaultTag>
+    <!-- Reserved for future branch-specific behavior. -->
+    <GitSemVerReleaseBranches>main</GitSemVerReleaseBranches>
+  </PropertyGroup>
+
+  <!-- Capture branch context and resolve a usable base tag before build. -->
+  <Target Name="GitSemVer_CaptureBranch"
+          BeforeTargets="PrepareForBuild"
+          Condition="'$(GitSemVerEnabled)'=='true' And '$(DesignTimeBuild)'!='true'">
+
+    <PropertyGroup>
+      <_GitSemVerDir>$(IntermediateOutputPath)</_GitSemVerDir>
+      <_GitBranchFile>$(_GitSemVerDir)git_branch.txt</_GitBranchFile>
+      <_GitTagFile>$(_GitSemVerDir)git_major_minor_tag.txt</_GitTagFile>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(_GitSemVerDir)" Condition="!Exists('$(_GitSemVerDir)')"/>
+    <Exec Command="git rev-parse --abbrev-ref HEAD &gt; &quot;$(_GitBranchFile)&quot;" IgnoreExitCode="true"/>
+
+    <ReadLinesFromFile File="$(_GitBranchFile)" Condition="Exists('$(_GitBranchFile)')">
+      <Output TaskParameter="Lines" ItemName="_GitBranchLines"/>
+    </ReadLinesFromFile>
+
+    <PropertyGroup>
+      <!-- CI branch metadata takes precedence over detached-HEAD git output. -->
+      <GitSemVerBranchRaw>@(_GitBranchLines)</GitSemVerBranchRaw>
+      <_GitSemVerCiBranch>$([System.String]::Copy('$(GITHUB_HEAD_REF)').Trim())</_GitSemVerCiBranch>
+      <_GitSemVerCiBranch Condition="'$(_GitSemVerCiBranch)'==''">$([System.String]::Copy('$(GITHUB_REF_NAME)').Trim())</_GitSemVerCiBranch>
+      <GitSemVerBranchEffective Condition="'$(_GitSemVerCiBranch)'!=''">$(_GitSemVerCiBranch)</GitSemVerBranchEffective>
+      <GitSemVerBranchEffective Condition="'$(GitSemVerBranchEffective)'==''">$([System.String]::Copy('$(GitSemVerBranchRaw)').Trim())</GitSemVerBranchEffective>
+      <GitSemVerBranchTrimmed>$([System.String]::Copy('$(GitSemVerBranchEffective)').Trim())</GitSemVerBranchTrimmed>
+      <GitSemVerBranchSafe>$([System.Text.RegularExpressions.Regex]::Replace($([System.String]::Copy('$(GitSemVerBranchTrimmed)').Replace('/','-')), '[^0-9A-Za-z_-]+', '-'))</GitSemVerBranchSafe>
+      <GitSemVerBranchLower>$([System.String]::Copy('$(GitSemVerBranchSafe)').ToLowerInvariant())</GitSemVerBranchLower>
+
+      <GitSemVerIsReleaseBranch Condition="'$(GitSemVerBranchLower)'=='main'">true</GitSemVerIsReleaseBranch>
+      <GitSemVerIsReleaseBranch Condition="'$(GitSemVerIsReleaseBranch)'==''">false</GitSemVerIsReleaseBranch>
+
+      <GitSemVerBaseBranch Condition="'$(GitSemVerIsReleaseBranch)'=='true'">$(GitSemVerBranchLower)</GitSemVerBaseBranch>
+      <GitSemVerBaseBranch Condition="'$(GitSemVerIsReleaseBranch)'!='true'">main</GitSemVerBaseBranch>
+
+      <GitSemVerBranchForFile Condition="'$(GitSemVerIsReleaseBranch)'=='true'">$([System.String]::Copy('$(GitSemVerBranchLower)').Substring(0,1).ToUpperInvariant())$([System.String]::Copy('$(GitSemVerBranchLower)').Substring(1))</GitSemVerBranchForFile>
+      <GitSemVerBranchForFile Condition="'$(GitSemVerIsReleaseBranch)'!='true'">$(GitSemVerBranchSafe)</GitSemVerBranchForFile>
+      <GitSemVerBranchForFileTrimmed>$([System.String]::Copy('$(GitSemVerBranchForFile)').Trim())</GitSemVerBranchForFileTrimmed>
+    </PropertyGroup>
+
+    <!-- Accept tags like v1.2, 1.2, v1.2.3, or 1.2.3. -->
+    <Exec
+      Command="git describe --tags --match &quot;v[0-9]*.[0-9]*&quot; --match &quot;v[0-9]*.[0-9]*.[0-9]*&quot; --match &quot;[0-9]*.[0-9]*&quot; --match &quot;[0-9]*.[0-9]*.[0-9]*&quot; --abbrev=0 &gt; &quot;$(_GitTagFile)&quot; 2&gt;/dev/null"
+      IgnoreExitCode="true"/>
+
+    <ReadLinesFromFile File="$(_GitTagFile)" Condition="Exists('$(_GitTagFile)')">
+      <Output TaskParameter="Lines" ItemName="_GitTagLines"/>
+    </ReadLinesFromFile>
+
+    <PropertyGroup>
+      <!-- Normalize discovered tag down to major.minor for base versioning. -->
+      <GitSemVerTagRaw>@(_GitTagLines)</GitSemVerTagRaw>
+      <GitSemVerTagTrimmed>$([System.String]::Copy('$(GitSemVerTagRaw)').Trim())</GitSemVerTagTrimmed>
+      <GitSemVerTagNoV>$([System.Text.RegularExpressions.Regex]::Replace('$(GitSemVerTagTrimmed)', '^[vV]', ''))</GitSemVerTagNoV>
+      <GitSemVerTagMajorMinorFromGit Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(GitSemVerTagNoV)', '^\d+\.\d+(?:\.\d+)?$'))">$([System.Text.RegularExpressions.Regex]::Replace('$(GitSemVerTagNoV)', '^(\d+\.\d+)(?:\.\d+)?$', '$1'))</GitSemVerTagMajorMinorFromGit>
+
+      <GitSemVerTag Condition="'$(GitSemVerTagMajorMinorFromGit)'!=''">$(GitSemVerTagMajorMinorFromGit)</GitSemVerTag>
+
+      <!-- Optional CI/manual override when forcing a specific major.minor baseline. -->
+      <GitSemVerTagOverrideNoV>$([System.Text.RegularExpressions.Regex]::Replace('$(GitSemVerTagOverride)', '^[vV]', ''))</GitSemVerTagOverrideNoV>
+      <GitSemVerTagFromOverride Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(GitSemVerTagOverrideNoV)', '^\d+\.\d+$'))">$(GitSemVerTagOverrideNoV)</GitSemVerTagFromOverride>
+      <GitSemVerTag Condition="'$(GitSemVerTagFromOverride)'!=''">$(GitSemVerTagFromOverride)</GitSemVerTag>
+
+      <GitSemVerTag Condition="'$(GitSemVerTag)'==''">$(GitSemVerDefaultTag)</GitSemVerTag>
+    </PropertyGroup>
+
+    <Message Importance="High"
+             Text="GitSemVer | Project=$(MSBuildProjectName) | Branch='$(GitSemVerBranchSafe)' | BaseBranch='$(GitSemVerBaseBranch)' | Tag='$(GitSemVerTag)'"/>
+  </Target>
+
+  <!-- Compute patch and final semantic version before compilation. -->
+  <Target Name="GitSemVer_ComputeVersion"
+          BeforeTargets="PrepareForBuild"
+          DependsOnTargets="GitSemVer_CaptureBranch"
+          Condition="'$(GitSemVerEnabled)'=='true' And '$(DesignTimeBuild)'!='true'">
+
+    <PropertyGroup>
+      <_GitPatchFile>$(IntermediateOutputPath)git_patch_count.txt</_GitPatchFile>
+      <!-- Patch = number of commits since latest matching version tag. -->
+      <_GitBaseTagForCount Condition="'$(GitSemVerTagTrimmed)'!=''">$(GitSemVerTagTrimmed)</_GitBaseTagForCount>
+      <_GitPatchCommand Condition="'$(_GitBaseTagForCount)'!=''">git rev-list --count $(_GitBaseTagForCount)..HEAD &gt; &quot;$(_GitPatchFile)&quot;</_GitPatchCommand>
+      <!-- Fallback when no tag exists: count all commits. -->
+      <_GitPatchCommand Condition="'$(_GitPatchCommand)'==''">git rev-list --count HEAD &gt; &quot;$(_GitPatchFile)&quot;</_GitPatchCommand>
+    </PropertyGroup>
+
+    <Exec Command="$(_GitPatchCommand)" IgnoreExitCode="true"/>
+
+    <ReadLinesFromFile File="$(_GitPatchFile)" Condition="Exists('$(_GitPatchFile)')">
+      <Output TaskParameter="Lines" ItemName="_GitPatchLines"/>
+    </ReadLinesFromFile>
+
+    <PropertyGroup>
+      <GitSemVerPatchRaw>@(_GitPatchLines)</GitSemVerPatchRaw>
+      <GitSemVerPatchTrimmed>$([System.String]::Copy('$(GitSemVerPatchRaw)').Trim())</GitSemVerPatchTrimmed>
+      <GitSemVerPatch Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(GitSemVerPatchTrimmed)', '^\d+$'))">$(GitSemVerPatchTrimmed)</GitSemVerPatch>
+      <GitSemVerPatch Condition="'$(GitSemVerPatch)'==''">0</GitSemVerPatch>
+      <GitSemVerVersion>$(GitSemVerTag).$(GitSemVerPatch)</GitSemVerVersion>
+    </PropertyGroup>
+
+    <PropertyGroup>
+      <!-- Apply computed semantic version to standard assembly/package properties. -->
+      <Version>$(GitSemVerVersion)</Version>
+      <AssemblyVersion>$(GitSemVerVersion)</AssemblyVersion>
+      <FileVersion>$(GitSemVerVersion)</FileVersion>
+      <InformationalVersion>$(GitSemVerVersion)+$(GitSemVerBranchSafe)</InformationalVersion>
+    </PropertyGroup>
+
+    <Message Importance="High"
+             Text="GitSemVer | Project=$(MSBuildProjectName) | Version=$(GitSemVerVersion) | BranchForFile='$(GitSemVerBranchForFile)' | Configuration=$(Configuration)"/>
+  </Target>
+
+</Project>
+
+

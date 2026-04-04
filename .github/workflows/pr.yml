@@ -1,0 +1,75 @@
+# PR/CI validation workflow for EpicSteamLauncher.
+# The .NET solution lives under Launcher/.
+
+name: PR Validation
+
+on:
+  # Run automatically for every pull request.
+  pull_request:
+  # Keep manual runs available for ad-hoc validation/re-runs.
+  workflow_dispatch:
+
+concurrency:
+  group: pr-dotnet-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    runs-on: windows-latest
+
+    steps:
+      # Why: GitSemVer reads branch/tag metadata that requires full history.
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          lfs: false
+
+      # Why: Ensure main + tags are available locally for deterministic versioning.
+      - name: Fetch main branch and tags
+        shell: pwsh
+        run: |
+          git fetch --prune --tags origin +refs/heads/main:refs/remotes/origin/main
+
+      # Why: Fail fast when workflow YAML is malformed.
+      - name: Validate workflow YAML files
+        uses: GrantBirki/json-yaml-validate@v4.0.0
+        with:
+          use_gitignore: false
+          base_dir: .github/
+          comment: true
+
+      - name: Setup .NET SDK 8.x
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+          cache: true
+          cache-dependency-path: |
+            Launcher/**/*.csproj
+            Launcher/**/*.props
+            Launcher/**/*.targets
+            Launcher/**/*.sln
+            Launcher/**/packages.lock.json
+
+      # Why: Restore once, then reuse packages for build/test steps.
+      - name: Restore NuGet packages
+        run: dotnet restore ./Launcher/EpicSteamLauncher.sln
+
+      # Why: Verify internal version calculation succeeds before compilation.
+      - name: Compute version with GitSemVer
+        run: dotnet msbuild ./Launcher/EpicSteamLauncher/EpicSteamLauncher.csproj -nologo -v:m /t:GitSemVer_ComputeVersion
+
+      - name: Build solution (Release)
+        run: dotnet build ./Launcher/EpicSteamLauncher.sln -c Release --no-restore
+
+      - name: Run tests (Release)
+        run: dotnet test ./Launcher/EpicSteamLauncher.Tests/EpicSteamLauncher.Tests.csproj -c Release --no-build --no-restore
+
+      # Why: Surface vulnerable direct/transitive dependencies in PRs.
+      - name: Report NuGet vulnerabilities
+        run: dotnet list ./Launcher/EpicSteamLauncher.sln package --vulnerable --include-transitive
+
