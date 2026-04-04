@@ -127,6 +127,52 @@ EpicSteamLauncher.exe "com.epicgames.launcher://apps/Fortnite?action=launch&sile
 
 ---
 
+## SteamGridDB API Key Setup
+
+Steam artwork sync is optional, but if you want banner/grid/hero/logo/icon downloads you need a SteamGridDB API key.
+
+### 1. Get your SteamGridDB API key
+
+1. Create or sign in to your SteamGridDB account.
+2. Open your account settings/API section and generate a personal API key.
+3. Copy the key and keep it private.
+
+### 2. Create the local config file
+
+Run sync once so the launcher creates the config file beside `EpicSteamLauncher.exe`:
+
+```powershell
+EpicSteamLauncher.exe --sync-nonsteam
+```
+
+This creates `steamgriddb.json` in the executable directory if it does not exist.
+
+### 3. Set the key in `steamgriddb.json`
+
+Edit `steamgriddb.json` and set `apiKey`:
+
+```json
+{
+  "apiKey": "YOUR_STEAMGRIDDB_API_KEY",
+  "dontAskAgain": false,
+  "lastValidatedUtc": null
+}
+```
+
+Then run sync again:
+
+```powershell
+EpicSteamLauncher.exe --sync-nonsteam
+```
+
+### 4. What to expect
+
+- If the key is valid and Steam paths are detected, artwork will be downloaded during sync.
+- If the key is missing/invalid (or SteamGridDB is unavailable), shortcut sync still completes and only artwork is skipped.
+- You can disable prompts by setting `dontAskAgain` to `true`.
+
+---
+
 ## Profiles
 
 - Profiles are JSON files with extension `.esl`.
