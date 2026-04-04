@@ -1,0 +1,75 @@
+﻿# Mainline build workflow for EpicSteamLauncher.
+# The .NET solution lives under Launcher/.
+
+name: Main Build
+
+on:
+  push:
+    # Mainline CI for merged changes to main.
+    branches: [ main ]
+    # Rerun only when code/build tooling/workflows change.
+    paths:
+      - 'Launcher/**'
+      - 'CLI/**'
+      - '.github/workflows/**'
+  # Allow manual mainline validation from Actions tab.
+  workflow_dispatch:
+
+concurrency:
+  group: build-main-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      # Why: GitSemVer reads branch/tag metadata that requires full history.
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # Why: Ensure remote main and tags exist locally for deterministic versioning.
+      - name: Fetch main branch and tags
+        shell: pwsh
+        run: |
+          git fetch --prune --tags origin +refs/heads/main:refs/remotes/origin/main
+
+      - name: Setup .NET SDK 8.x
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+          cache: true
+          cache-dependency-path: |
+            Launcher/**/*.csproj
+            Launcher/**/*.props
+            Launcher/**/*.targets
+            Launcher/**/*.sln
+            Launcher/**/packages.lock.json
+
+      - name: Restore NuGet packages
+        run: dotnet restore ./Launcher/EpicSteamLauncher.sln
+
+      # Why: Verify internal version calculation succeeds before build/test.
+      - name: Compute version with GitSemVer
+        run: dotnet msbuild ./Launcher/EpicSteamLauncher/EpicSteamLauncher.csproj -nologo -v:m /t:GitSemVer_ComputeVersion
+
+      - name: Build solution (Release)
+        run: dotnet build ./Launcher/EpicSteamLauncher.sln -c Release --no-restore
+
+      - name: Run tests (Release)
+        run: dotnet test ./Launcher/EpicSteamLauncher.Tests/EpicSteamLauncher.Tests.csproj -c Release --no-build --no-restore
+
+      # Why: Keep a downloadable artifact for manual inspection/download.
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: EpicSteamLauncher-Release
+          path: |
+            Launcher/EpicSteamLauncher/bin/Release/net8.0-windows/**
+          if-no-files-found: error
+
