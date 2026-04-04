@@ -60,6 +60,9 @@ EpicSteamLauncher.exe --wizard
 - `Launcher/EpicSteamLauncher.Tests/` - xUnit v3 test project.
 - `Launcher/EpicSteamLauncher.sln` - Solution file.
 - `Launcher/Directory.Packages.props` - Central package versions.
+- `Launcher/Directory.Build.targets` - Internal GitSemVer version computation.
+- `CLI/PowerShell/Validate-SemVerTag.ps1` - SemVer validation helper used by release automation.
+- `.github/workflows/` - CI and release workflows (`pr.yml`, `build.yml`, `release.yml`).
 
 ---
 
@@ -207,6 +210,29 @@ Set-Location "D:\Development\Projects-VisualStudio\EpicSteamLauncher\Launcher"
 dotnet build "EpicSteamLauncher.sln"
 dotnet test "EpicSteamLauncher.Tests\EpicSteamLauncher.Tests.csproj"
 ```
+
+---
+
+## CI and Release Workflows
+
+Current GitHub Actions behavior:
+
+- `pr.yml` (`PR Validation`): runs automatically on every pull request and can also be started manually.
+- `build.yml` (`Main Build (DotNet)`): runs on pushes to `main` when changes touch `Launcher/**`, `CLI/**`, or `.github/workflows/**`; also supports manual runs.
+- `release.yml` (`Release (DotNet)`): manual-only (`workflow_dispatch`).
+
+### Manual release behavior
+
+- Start release from GitHub Actions (`Release` -> `Run workflow`).
+- The release version/tag is computed automatically by internal GitSemVer logic in `Launcher/Directory.Build.targets`.
+- You do not manually type a release version in workflow inputs.
+
+### Versioning rules (GitSemVer)
+
+- Base tag discovery accepts `vMAJOR.MINOR`, `MAJOR.MINOR`, `vMAJOR.MINOR.PATCH`, and `MAJOR.MINOR.PATCH`.
+- Base version is normalized to `MAJOR.MINOR`.
+- `PATCH` is computed as the number of commits since the latest matching tag (`<tag>..HEAD`).
+- Final version format is `MAJOR.MINOR.PATCH`, and release tag format is `vMAJOR.MINOR.PATCH`.
 
 ---
 
