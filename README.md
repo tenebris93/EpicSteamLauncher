@@ -1,6 +1,7 @@
 # EpicSteamLauncher
 
-EpicSteamLauncher is a Windows .NET command-line launcher that makes Epic Games Store titles behave like native running games in Steam (including Big Picture and Steam Link workflows).
+EpicSteamLauncher is a Windows .NET command-line launcher that makes Epic Games Store titles behave like native running games in Steam (including Big Picture
+and Steam Link workflows).
 
 It launches an Epic URI, finds the game process, and stays alive until the game exits so Steam keeps the session active.
 
@@ -13,7 +14,7 @@ It launches an Epic URI, finds the game process, and stays alive until the game 
 - Creates and validates profile files (`*.esl`) in a local `profiles` folder.
 - Imports installed Epic games and auto-generates profiles.
 - Syncs profiles into Steam `shortcuts.vdf` as Non-Steam shortcuts.
-- Optionally downloads Steam artwork/icon assets through SteamGridDB.
+- Optionally, downloads Steam artwork/icon assets through SteamGridDB.
 - Uses process-tree waiting and startup diagnostics to improve process detection reliability.
 
 ---
@@ -83,15 +84,25 @@ EpicSteamLauncher.exe --sync-nonsteam
 
 ### Command reference
 
-| Command | Purpose |
-|---|---|
-| `EpicSteamLauncher.exe` | Opens interactive menu mode |
-| `EpicSteamLauncher.exe --wizard` | Creates/edits a profile interactively |
-| `EpicSteamLauncher.exe --import-installed` | Imports installed Epic titles into profiles |
+| Command                                     | Purpose                                         |
+|---------------------------------------------|-------------------------------------------------|
+| `EpicSteamLauncher.exe`                     | Opens interactive menu mode                     |
+| `EpicSteamLauncher.exe --wizard`            | Creates/edits a profile interactively           |
+| `EpicSteamLauncher.exe --import-installed`  | Imports installed Epic titles into profiles     |
 | `EpicSteamLauncher.exe --validate-profiles` | Validates all profile files and prints a report |
-| `EpicSteamLauncher.exe --profile "Name"` | Launches a specific profile |
-| `EpicSteamLauncher.exe --profile` | Opens profile selector mode |
-| `EpicSteamLauncher.exe --sync-nonsteam` | Upserts Steam Non-Steam shortcuts from profiles |
+| `EpicSteamLauncher.exe --profile "Name"`    | Launches a specific profile                     |
+| `EpicSteamLauncher.exe --profile=Name`      | Launches a specific profile (equals form)       |
+| `EpicSteamLauncher.exe --profile`           | Opens profile selector mode                     |
+| `EpicSteamLauncher.exe --sync-nonsteam`     | Upserts Steam Non-Steam shortcuts from profiles |
+
+### Global flags
+
+These flags can be passed with other commands:
+
+| Flag         | Purpose                             |
+|--------------|-------------------------------------|
+| `--pause`    | Pause on exit for command-line runs |
+| `--no-pause` | Explicitly disable pause-on-exit    |
 
 ### Legacy mode (still supported)
 
@@ -120,9 +131,9 @@ EpicSteamLauncher.exe "com.epicgames.launcher://apps/Fortnite?action=launch&sile
 - The app auto-creates a `profiles` folder beside the executable.
 - The file `example.profile.esl` is an example template and is intentionally ignored by profile selection/validation.
 - Key fields:
-  - `EpicLaunchUrl`
-  - `GameProcessName`
-  - Optional timing and install metadata fields
+    - `EpicLaunchUrl`
+    - `GameProcessName`
+    - Optional timing and install metadata fields
 
 Example profile:
 
@@ -156,6 +167,12 @@ dotnet test "EpicSteamLauncher.Tests\EpicSteamLauncher.Tests.csproj"
 - Steam sync writes/upserts shortcuts in the active Steam user `shortcuts.vdf`.
 - SteamGridDB usage is optional; API key settings are stored in `steamgriddb.json` beside the executable.
 - Documentation is centralized in this root README to avoid project-internal README drift during IDE cleanup/code-style workflows.
+
+CLI parser notes:
+
+- `--profile=Name` and `--profile "Name"` are both supported.
+- `--profile=""` falls back to profile selector mode.
+- `--profile=` (empty value without quotes) is currently treated as bad arguments.
 
 SteamGridDB artwork behavior:
 
