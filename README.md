@@ -14,7 +14,7 @@ It launches an Epic URI, finds the game process, and stays alive until the game 
 - Creates and validates profile files (`*.esl`) in a local `profiles` folder.
 - Imports installed Epic games and auto-generates profiles.
 - Syncs profiles into Steam `shortcuts.vdf` as Non-Steam shortcuts.
-- Optionally, downloads Steam artwork/icon assets through SteamGridDB.
+- Optionally downloads Steam artwork/icon assets through SteamGridDB.
 - Uses process-tree waiting and startup diagnostics to improve process detection reliability.
 
 ---
@@ -55,6 +55,8 @@ EpicSteamLauncher.exe --wizard
 ## Repository Layout
 
 - `Launcher/EpicSteamLauncher/` - Main console application.
+- `Launcher/EpicSteamLauncher/Application/Internal/` - Internal command/menu parsing and defaults types.
+- `Launcher/EpicSteamLauncher/Application/Models/` - Profile/import/runtime data models.
 - `Launcher/EpicSteamLauncher.Tests/` - xUnit v3 test project.
 - `Launcher/EpicSteamLauncher.sln` - Solution file.
 - `Launcher/Directory.Packages.props` - Central package versions.

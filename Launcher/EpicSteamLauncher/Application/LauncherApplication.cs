@@ -43,6 +43,8 @@
 using System.Diagnostics;
 using System.Management;
 using System.Text;
+using EpicSteamLauncher.Application.Internal;
+using EpicSteamLauncher.Application.Models;
 using EpicSteamLauncher.Configuration;
 using EpicSteamLauncher.Infrastructure.Steam;
 using EpicSteamLauncher.Services.SteamGridDb;
@@ -2651,98 +2653,6 @@ Notes:
             {
                 // ignore
             }
-        }
-
-        // ---------------------------------------------------------------------
-        // Helpers
-        // ---------------------------------------------------------------------
-
-        private sealed record ParsedArgs
-        (
-            bool PauseOnExit,
-            string? Command,
-            string? CommandValue,
-            IReadOnlyList<string> Positionals
-        );
-
-        // ---------------------------------------------------------------------
-        // Models
-        // ---------------------------------------------------------------------
-
-        private static class Defaults
-        {
-            public const int StartTimeoutSeconds = 60;
-            public const int PollIntervalMs = 500;
-            public const int LaunchDelayMs = 0;
-            public const int LegacyLaunchDelayMs = 5000;
-            public const int StartTimeToleranceSeconds = 3;
-            public const bool FallbackToAnyMatchingProcess = true;
-            public const int DiagnosticsMaxCandidates = 25;
-        }
-
-        private sealed class MenuOption(string label, Func<MenuOutcome> action)
-        {
-            public string Label { get; } = label ?? throw new ArgumentNullException(nameof(label));
-            public Func<MenuOutcome> Action { get; } = action ?? throw new ArgumentNullException(nameof(action));
-        }
-
-        private readonly struct MenuOutcome
-        {
-            private MenuOutcome(bool shouldExit, int? lastResultCode)
-            {
-                ShouldExit = shouldExit;
-                LastResultCode = lastResultCode;
-            }
-
-            public bool ShouldExit { get; }
-            public int? LastResultCode { get; }
-
-            public static MenuOutcome Continue(int? lastResultCode = null)
-            {
-                return new MenuOutcome(false, lastResultCode);
-            }
-
-            public static MenuOutcome Exit()
-            {
-                return new MenuOutcome(true, null);
-            }
-        }
-
-        private sealed class EpicInstalledGame
-        {
-            public string? DisplayName { get; set; }
-            public string? AppName { get; set; }
-            public string? InstallLocation { get; set; }
-            public string? LaunchExecutable { get; set; }
-            public string? Source { get; set; }
-        }
-
-        private sealed class ProcessCandidate
-        {
-            public int Pid { get; set; }
-            public string ProcessName { get; set; } = string.Empty;
-            public DateTime? StartTimeLocal { get; set; }
-            public string ExePath { get; set; } = string.Empty;
-            public bool IsUnderInstallLocation { get; set; }
-        }
-
-        private sealed class GameProfile
-        {
-            public string Name { get; set; } = string.Empty;
-            public string EpicLaunchUrl { get; set; } = string.Empty;
-            public string GameProcessName { get; set; } = string.Empty;
-            public int StartTimeoutSeconds { get; set; } = Defaults.StartTimeoutSeconds;
-            public int PollIntervalMs { get; set; } = Defaults.PollIntervalMs;
-            public int LaunchDelayMs { get; set; } = Defaults.LaunchDelayMs;
-            public string? InstallLocation { get; set; } = string.Empty;
-            public string? LaunchExecutable { get; set; } = string.Empty;
-        }
-
-        private readonly struct DiscoveredProfile(string name, string path, GameProfile profile)
-        {
-            public string Name { get; } = name;
-            public string Path { get; } = path;
-            public GameProfile Profile { get; } = profile;
         }
     }
 }
