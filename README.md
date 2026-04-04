@@ -1,30 +1,32 @@
 # EpicSteamLauncher
 
-EpicSteamLauncher is a lightweight C# command-line utility that allows Epic Games Store titles to be launched through Steam. This enables Epic-exclusive games to run properly inside Steam, Big Picture Mode, and Steam Link.
+EpicSteamLauncher is a lightweight C# command-line utility that allows Epic Games Store titles to be launched through Steam. This enables Epic-exclusive games
+to run properly inside Steam, Big Picture Mode, and Steam Link.
 
-It works by launching the Epic Games URL, detecting the spawned game process, and keeping the launcher alive until the game exits so Steam treats the session as an active game.
+It works by launching the Epic Games URL, detecting the spawned game process, and keeping the launcher alive until the game exits so Steam treats the session as
+an active game.
 
 ---
 
 ## Features
 
-- Launches Epic Games Store titles using their native Epic launch URLs  
-- Detects the running game process by executable name  
-- Blocks until the game closes so Steam sessions behave correctly  
-- Works with Steam Link and Big Picture Mode  
-- No external dependencies or background services  
+- Launches Epic Games Store titles using their native Epic launch URLs
+- Detects the running game process by executable name
+- Blocks until the game closes so Steam sessions behave correctly
+- Works with Steam Link and Big Picture Mode
+- No external dependencies or background services
 
 ---
 
 ## How It Works
 
-1. Steam launches EpicSteamLauncher with two arguments  
-   - Epic Games launch URL  
-   - Game executable name  
-2. EpicSteamLauncher opens the Epic URL using the system shell  
-3. It waits briefly for the game process to start  
-4. The game process is detected by name  
-5. EpicSteamLauncher waits until the game exits, then closes  
+1. Steam launches EpicSteamLauncher with two arguments
+    - Epic Games launch URL
+    - Game executable name
+2. EpicSteamLauncher opens the Epic URL using the system shell
+3. It waits briefly for the game process to start
+4. The game process is detected by name
+5. EpicSteamLauncher waits until the game exits, then closes
 
 ---
 
@@ -48,8 +50,8 @@ EpicSteamLauncher.exe "com.epicgames.launcher://apps/Fortnite?action=launch&sile
 
 ## Requirements
 
-- Windows  
-- .NET Framework or compatible runtime  
+- Windows
+- .NET Framework or compatible runtime
 
 ---
 

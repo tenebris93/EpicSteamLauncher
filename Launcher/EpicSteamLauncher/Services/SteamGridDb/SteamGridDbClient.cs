@@ -6,7 +6,7 @@ using System.Text.Json.Serialization;
 namespace EpicSteamLauncher.Services.SteamGridDb
 {
     /// <summary>
-    /// Wraps SteamGridDB HTTP APIs used to search games and fetch artwork assets.
+    ///     Wraps SteamGridDB HTTP APIs used to search games and fetch artwork assets.
     /// </summary>
     internal sealed class SteamGridDbClient
     {
@@ -15,7 +15,7 @@ namespace EpicSteamLauncher.Services.SteamGridDb
         private readonly JsonSerializerOptions _json;
 
         /// <summary>
-        /// Initializes a new SteamGridDB API client.
+        ///     Initializes a new SteamGridDB API client.
         /// </summary>
         /// <param name="http">HTTP client instance used for API calls.</param>
         /// <param name="apiKey">SteamGridDB API key.</param>
@@ -66,7 +66,7 @@ namespace EpicSteamLauncher.Services.SteamGridDb
         }
 
         /// <summary>
-        /// Searches SteamGridDB and returns the first matching game ID.
+        ///     Searches SteamGridDB and returns the first matching game ID.
         /// </summary>
         /// <param name="name">Game name query.</param>
         /// <param name="ct">Cancellation token.</param>
@@ -88,7 +88,7 @@ namespace EpicSteamLauncher.Services.SteamGridDb
         }
 
         /// <summary>
-        /// Gets icon assets for a specific game ID.
+        ///     Gets icon assets for a specific game ID.
         /// </summary>
         /// <param name="gameId">SteamGridDB game ID.</param>
         /// <param name="ct">Cancellation token.</param>
@@ -99,7 +99,7 @@ namespace EpicSteamLauncher.Services.SteamGridDb
         }
 
         /// <summary>
-        /// Gets grid assets for a specific game ID.
+        ///     Gets grid assets for a specific game ID.
         /// </summary>
         /// <param name="gameId">SteamGridDB game ID.</param>
         /// <param name="ct">Cancellation token.</param>
@@ -110,7 +110,7 @@ namespace EpicSteamLauncher.Services.SteamGridDb
         }
 
         /// <summary>
-        /// Gets hero assets for a specific game ID.
+        ///     Gets hero assets for a specific game ID.
         /// </summary>
         /// <param name="gameId">SteamGridDB game ID.</param>
         /// <param name="ct">Cancellation token.</param>
@@ -121,7 +121,7 @@ namespace EpicSteamLauncher.Services.SteamGridDb
         }
 
         /// <summary>
-        /// Gets logo assets for a specific game ID.
+        ///     Gets logo assets for a specific game ID.
         /// </summary>
         /// <param name="gameId">SteamGridDB game ID.</param>
         /// <param name="ct">Cancellation token.</param>
@@ -132,7 +132,7 @@ namespace EpicSteamLauncher.Services.SteamGridDb
         }
 
         /// <summary>
-        /// Fetches and deserializes an artwork asset endpoint response.
+        ///     Fetches and deserializes an artwork asset endpoint response.
         /// </summary>
         /// <param name="relativeUrl">Relative endpoint path.</param>
         /// <param name="ct">Cancellation token.</param>
@@ -154,62 +154,69 @@ namespace EpicSteamLauncher.Services.SteamGridDb
         }
 
         /// <summary>
-        /// Generic SteamGridDB response envelope.
+        ///     Generic SteamGridDB response envelope.
         /// </summary>
         private sealed class SgdbResponse<T>
         {
             /// <summary>
-            /// Gets or sets a value indicating whether the API call succeeded.
+            ///     Gets or sets a value indicating whether the API call succeeded.
             /// </summary>
-            [JsonPropertyName("success")] public bool Success { get; set; }
+            [JsonPropertyName("success")]
+            public bool Success { get; set; }
 
             /// <summary>
-            /// Gets or sets the response data payload.
+            ///     Gets or sets the response data payload.
             /// </summary>
-            [JsonPropertyName("data")] public T? Data { get; set; }
+            [JsonPropertyName("data")]
+            public T? Data { get; set; }
         }
 
         /// <summary>
-        /// Represents a game search result item.
+        ///     Represents a game search result item.
         /// </summary>
         private sealed class SgdbGameSearchItem
         {
             /// <summary>
-            /// Gets or sets the game ID.
+            ///     Gets or sets the game ID.
             /// </summary>
-            [JsonPropertyName("id")] public int Id { get; set; }
+            [JsonPropertyName("id")]
+            public int Id { get; set; }
 
             /// <summary>
-            /// Gets or sets the game display name.
+            ///     Gets or sets the game display name.
             /// </summary>
-            [JsonPropertyName("name")] public string? Name { get; set; }
+            [JsonPropertyName("name")]
+            public string? Name { get; set; }
         }
 
         /// <summary>
-        /// Represents an artwork asset item returned by SteamGridDB.
+        ///     Represents an artwork asset item returned by SteamGridDB.
         /// </summary>
         public sealed class SgdbAssetItem
         {
             /// <summary>
-            /// Gets or sets the asset ID.
+            ///     Gets or sets the asset ID.
             /// </summary>
-            [JsonPropertyName("id")] public int Id { get; set; }
+            [JsonPropertyName("id")]
+            public int Id { get; set; }
 
             /// <summary>
-            /// Gets or sets the asset URL.
+            ///     Gets or sets the asset URL.
             /// </summary>
-            [JsonPropertyName("url")] public string? Url { get; set; }
+            [JsonPropertyName("url")]
+            public string? Url { get; set; }
 
             /// <summary>
-            /// Gets or sets the asset width in pixels.
+            ///     Gets or sets the asset width in pixels.
             /// </summary>
-            [JsonPropertyName("width")] public int Width { get; set; }
+            [JsonPropertyName("width")]
+            public int Width { get; set; }
 
             /// <summary>
-            /// Gets or sets the asset height in pixels.
+            ///     Gets or sets the asset height in pixels.
             /// </summary>
-            [JsonPropertyName("height")] public int Height { get; set; }
+            [JsonPropertyName("height")]
+            public int Height { get; set; }
         }
     }
 }
-

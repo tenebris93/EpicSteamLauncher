@@ -52,7 +52,7 @@ using Newtonsoft.Json.Linq;
 namespace EpicSteamLauncher.Application
 {
     /// <summary>
-    /// Executes the launcher command flow and interactive menu behavior.
+    ///     Executes the launcher command flow and interactive menu behavior.
     /// </summary>
     internal static class LauncherApplication
     {
@@ -74,19 +74,33 @@ namespace EpicSteamLauncher.Application
         private static bool _pauseOnExit;
 
         /// <summary>
-        /// Runs the main application workflow for CLI and interactive modes.
+        ///     Runs the main application workflow for CLI and interactive modes.
         /// </summary>
         /// <param name="args">Command-line arguments.</param>
         /// <returns>Process exit code.</returns>
         internal static int Run(string[] args)
         {
-            if (args.Length == 0)
-            {
-                _pauseOnExit = true; // menu mode (double-click): keep pause behavior if you want it
-                BootstrapProfilesFolder();
-                return ShowMainMenu();
-            }
+            return args.Length == 0 ? RunInteractive() : RunCommandLine(args);
+        }
 
+        /// <summary>
+        ///     Runs interactive menu mode when no command-line arguments are provided.
+        /// </summary>
+        /// <returns>Process exit code.</returns>
+        internal static int RunInteractive()
+        {
+            _pauseOnExit = true; // menu mode (double-click): keep pause behavior if you want it
+            BootstrapProfilesFolder();
+            return ShowMainMenu();
+        }
+
+        /// <summary>
+        ///     Runs command-line mode for explicit launcher commands.
+        /// </summary>
+        /// <param name="args">Non-empty command-line arguments.</param>
+        /// <returns>Process exit code.</returns>
+        internal static int RunCommandLine(string[] args)
+        {
             var parsed = ParseArgs(args);
 
             // For Steam / args-mode: default is no pause, unless --pause was explicitly provided
@@ -1721,18 +1735,6 @@ namespace EpicSteamLauncher.Application
             return ExitProcessNotFound;
         }
 
-        // ---------------------------------------------------------------------
-        // Helpers
-        // ---------------------------------------------------------------------
-
-        private sealed record ParsedArgs
-        (
-            bool PauseOnExit,
-            string? Command,
-            string? CommandValue,
-            IReadOnlyList<string> Positionals
-        );
-
         private static ParsedArgs ParseArgs(string[] args)
         {
             bool pause = false;
@@ -2652,6 +2654,18 @@ Notes:
         }
 
         // ---------------------------------------------------------------------
+        // Helpers
+        // ---------------------------------------------------------------------
+
+        private sealed record ParsedArgs
+        (
+            bool PauseOnExit,
+            string? Command,
+            string? CommandValue,
+            IReadOnlyList<string> Positionals
+        );
+
+        // ---------------------------------------------------------------------
         // Models
         // ---------------------------------------------------------------------
 
@@ -2732,4 +2746,3 @@ Notes:
         }
     }
 }
-

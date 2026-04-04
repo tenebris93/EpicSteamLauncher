@@ -3,13 +3,13 @@
 namespace EpicSteamLauncher.Infrastructure.Steam
 {
     /// <summary>
-    /// Generates Steam-compatible app IDs for non-Steam shortcuts.
+    ///     Generates Steam-compatible app IDs for non-Steam shortcuts.
     /// </summary>
     internal static class SteamShortcutId
     {
         // Matches Python: zlib.crc32((exe_path + game_name).encode("utf-8")) | 0x80000000
         /// <summary>
-        /// Generates a deterministic non-Steam app ID from executable path and game name.
+        ///     Generates a deterministic non-Steam app ID from executable path and game name.
         /// </summary>
         /// <param name="exePath">Executable path used in shortcut identity.</param>
         /// <param name="gameName">Game name used in shortcut identity.</param>
@@ -27,7 +27,7 @@ namespace EpicSteamLauncher.Infrastructure.Steam
 
         // Standard CRC32 (IEEE) polynomial used by zlib.
         /// <summary>
-        /// Computes CRC32 (IEEE) for the provided byte sequence.
+        ///     Computes CRC32 (IEEE) for the provided byte sequence.
         /// </summary>
         /// <param name="data">Input bytes.</param>
         /// <returns>CRC32 checksum value.</returns>
@@ -50,4 +50,3 @@ namespace EpicSteamLauncher.Infrastructure.Steam
         }
     }
 }
-

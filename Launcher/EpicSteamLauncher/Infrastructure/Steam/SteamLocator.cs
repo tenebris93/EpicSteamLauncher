@@ -3,12 +3,12 @@
 namespace EpicSteamLauncher.Infrastructure.Steam
 {
     /// <summary>
-    /// Resolves Steam install and user data paths required for shortcut and artwork synchronization.
+    ///     Resolves Steam install and user data paths required for shortcut and artwork synchronization.
     /// </summary>
     internal static class SteamLocator
     {
         /// <summary>
-        /// Attempts to resolve the Steam installation directory from the current user's registry hive.
+        ///     Attempts to resolve the Steam installation directory from the current user's registry hive.
         /// </summary>
         /// <returns>The Steam installation path when found; otherwise <see langword="null" />.</returns>
         public static string? TryGetSteamPath()
@@ -26,7 +26,7 @@ namespace EpicSteamLauncher.Infrastructure.Steam
         }
 
         /// <summary>
-        /// Attempts to resolve the active user's <c>shortcuts.vdf</c> path even when the file does not exist yet.
+        ///     Attempts to resolve the active user's <c>shortcuts.vdf</c> path even when the file does not exist yet.
         /// </summary>
         /// <param name="steamPath">Steam installation directory.</param>
         /// <returns>Expected <c>shortcuts.vdf</c> path when a userdata config folder is found; otherwise <see langword="null" />.</returns>
@@ -38,7 +38,7 @@ namespace EpicSteamLauncher.Infrastructure.Steam
         }
 
         /// <summary>
-        /// Attempts to resolve the Steam grid artwork folder path even when the folder does not exist yet.
+        ///     Attempts to resolve the Steam grid artwork folder path even when the folder does not exist yet.
         /// </summary>
         /// <param name="steamPath">Steam installation directory.</param>
         /// <returns>Expected grid folder path when a userdata config folder is found; otherwise <see langword="null" />.</returns>
@@ -50,7 +50,7 @@ namespace EpicSteamLauncher.Infrastructure.Steam
         }
 
         /// <summary>
-        /// Picks the most recently active numeric userdata config directory under Steam.
+        ///     Picks the most recently active numeric userdata config directory under Steam.
         /// </summary>
         /// <param name="steamPath">Steam installation directory.</param>
         /// <returns>Resolved userdata config folder or <see langword="null" /> if no suitable directory is found.</returns>
@@ -94,4 +94,3 @@ namespace EpicSteamLauncher.Infrastructure.Steam
         }
     }
 }
-

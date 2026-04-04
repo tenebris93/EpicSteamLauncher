@@ -1,7 +1,7 @@
 ﻿namespace EpicSteamLauncher.Infrastructure.Steam
 {
     /// <summary>
-    /// Indicates whether a Steam shortcut entry was created or updated.
+    ///     Indicates whether a Steam shortcut entry was created or updated.
     /// </summary>
     internal enum ShortcutUpsertResult
     {
@@ -10,12 +10,12 @@
     }
 
     /// <summary>
-    /// Loads, mutates, and saves Steam's <c>shortcuts.vdf</c> content.
+    ///     Loads, mutates, and saves Steam's <c>shortcuts.vdf</c> content.
     /// </summary>
     internal static class SteamShortcutsEditor
     {
         /// <summary>
-        /// Loads Steam shortcuts from disk or creates an empty root structure when missing.
+        ///     Loads Steam shortcuts from disk or creates an empty root structure when missing.
         /// </summary>
         /// <param name="shortcutsPath">Path to the shortcuts VDF file.</param>
         /// <returns>Mutable shortcuts root map.</returns>
@@ -41,7 +41,7 @@
         }
 
         /// <summary>
-        /// Saves shortcuts to disk atomically to reduce risk of corruption.
+        ///     Saves shortcuts to disk atomically to reduce risk of corruption.
         /// </summary>
         /// <param name="shortcutsPath">Path to the shortcuts VDF file.</param>
         /// <param name="root">Root shortcuts map to persist.</param>
@@ -93,7 +93,7 @@
         }
 
         /// <summary>
-        /// Creates or updates a Steam shortcut entry for a profile-backed launcher command.
+        ///     Creates or updates a Steam shortcut entry for a profile-backed launcher command.
         /// </summary>
         /// <param name="root">Root shortcuts map.</param>
         /// <param name="appName">Display name shown by Steam.</param>
@@ -170,7 +170,7 @@
         }
 
         /// <summary>
-        /// Sets the icon path for an existing shortcut by app ID.
+        ///     Sets the icon path for an existing shortcut by app ID.
         /// </summary>
         /// <param name="root">Root shortcuts map.</param>
         /// <param name="appId">Shortcut app ID to update.</param>
@@ -219,7 +219,7 @@
         }
 
         /// <summary>
-        /// Builds Steam's expected numeric-key tag map from plain string tags.
+        ///     Builds Steam's expected numeric-key tag map from plain string tags.
         /// </summary>
         /// <param name="tags">Optional list of tag values.</param>
         /// <returns>Tag map keyed from zero-based index.</returns>
@@ -249,4 +249,3 @@
         }
     }
 }
-

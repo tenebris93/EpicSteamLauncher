@@ -3,27 +3,30 @@
 namespace EpicSteamLauncher.Configuration
 {
     /// <summary>
-    /// Stores SteamGridDB integration preferences and API key settings.
+    ///     Stores SteamGridDB integration preferences and API key settings.
     /// </summary>
     internal sealed class SteamGridDbConfig
     {
         /// <summary>
-        /// Gets or sets the SteamGridDB API key.
+        ///     Gets or sets the SteamGridDB API key.
         /// </summary>
-        [JsonProperty("apiKey")] public string ApiKey { get; set; } = "";
+        [JsonProperty("apiKey")]
+        public string ApiKey { get; set; } = "";
 
         /// <summary>
-        /// Gets or sets a value indicating whether key prompts should be skipped.
+        ///     Gets or sets a value indicating whether key prompts should be skipped.
         /// </summary>
-        [JsonProperty("dontAskAgain")] public bool DontAskAgain { get; set; }
+        [JsonProperty("dontAskAgain")]
+        public bool DontAskAgain { get; set; }
 
         /// <summary>
-        /// Gets or sets the last successful API validation timestamp in UTC.
+        ///     Gets or sets the last successful API validation timestamp in UTC.
         /// </summary>
-        [JsonProperty("lastValidatedUtc")] public DateTime? LastValidatedUtc { get; set; }
+        [JsonProperty("lastValidatedUtc")]
+        public DateTime? LastValidatedUtc { get; set; }
 
         /// <summary>
-        /// Loads an existing configuration file or creates a default one when missing or invalid.
+        ///     Loads an existing configuration file or creates a default one when missing or invalid.
         /// </summary>
         /// <param name="path">Configuration file path.</param>
         /// <param name="created">Outputs whether a new default configuration was created.</param>
@@ -57,7 +60,7 @@ namespace EpicSteamLauncher.Configuration
         }
 
         /// <summary>
-        /// Saves configuration atomically to prevent partial writes.
+        ///     Saves configuration atomically to prevent partial writes.
         /// </summary>
         /// <param name="path">Configuration file path.</param>
         /// <param name="cfg">Configuration data to persist.</param>
@@ -110,4 +113,3 @@ namespace EpicSteamLauncher.Configuration
         }
     }
 }
-

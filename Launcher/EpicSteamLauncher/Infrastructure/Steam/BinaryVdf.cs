@@ -23,7 +23,7 @@ namespace EpicSteamLauncher.Infrastructure.Steam
         private const byte TypeEnd = 0x08;
 
         /// <summary>
-        /// Reads a Binary VDF document from a stream and returns the root map.
+        ///     Reads a Binary VDF document from a stream and returns the root map.
         /// </summary>
         /// <param name="input">Input stream containing Binary VDF content.</param>
         /// <returns>Root key/value map parsed from the input stream.</returns>
@@ -36,7 +36,7 @@ namespace EpicSteamLauncher.Infrastructure.Steam
         }
 
         /// <summary>
-        /// Writes a Binary VDF document to a stream from the provided root map.
+        ///     Writes a Binary VDF document to a stream from the provided root map.
         /// </summary>
         /// <param name="output">Destination stream for Binary VDF bytes.</param>
         /// <param name="root">Root key/value map to serialize.</param>
@@ -51,7 +51,7 @@ namespace EpicSteamLauncher.Infrastructure.Steam
         }
 
         /// <summary>
-        /// Reads a map node until an end marker is encountered.
+        ///     Reads a map node until an end marker is encountered.
         /// </summary>
         /// <param name="br">Binary reader positioned at map content.</param>
         /// <returns>Parsed map for the current node.</returns>
@@ -98,7 +98,7 @@ namespace EpicSteamLauncher.Infrastructure.Steam
         }
 
         /// <summary>
-        /// Writes a map node and all children to the binary writer.
+        ///     Writes a map node and all children to the binary writer.
         /// </summary>
         /// <param name="bw">Binary writer used for output.</param>
         /// <param name="map">Map node to serialize.</param>
@@ -144,7 +144,7 @@ namespace EpicSteamLauncher.Infrastructure.Steam
         }
 
         /// <summary>
-        /// Reads a UTF-8 null-terminated string value from the stream.
+        ///     Reads a UTF-8 null-terminated string value from the stream.
         /// </summary>
         /// <param name="br">Binary reader used to read bytes.</param>
         /// <returns>Decoded string value.</returns>
@@ -173,7 +173,7 @@ namespace EpicSteamLauncher.Infrastructure.Steam
         }
 
         /// <summary>
-        /// Writes a UTF-8 string followed by a null terminator.
+        ///     Writes a UTF-8 string followed by a null terminator.
         /// </summary>
         /// <param name="bw">Binary writer used for output.</param>
         /// <param name="s">String value to write.</param>
@@ -190,4 +190,3 @@ namespace EpicSteamLauncher.Infrastructure.Steam
         }
     }
 }
-

@@ -13,7 +13,7 @@ namespace EpicSteamLauncher.Services.SteamGridDb
         private static readonly string[] KnownExtensions = [".png", ".jpg", ".jpeg", ".webp", ".ico"];
 
         /// <summary>
-        /// Downloads missing artwork variants for each provided shortcut entry.
+        ///     Downloads missing artwork variants for each provided shortcut entry.
         /// </summary>
         /// <param name="apiKey">SteamGridDB API key.</param>
         /// <param name="gridFolder">Steam grid folder path.</param>
@@ -200,7 +200,7 @@ namespace EpicSteamLauncher.Services.SteamGridDb
         }
 
         /// <summary>
-        /// Checks whether a file exists for the provided base name under any known artwork extension.
+        ///     Checks whether a file exists for the provided base name under any known artwork extension.
         /// </summary>
         /// <param name="dir">Directory path to probe.</param>
         /// <param name="baseName">Base file name without extension.</param>
@@ -211,7 +211,7 @@ namespace EpicSteamLauncher.Services.SteamGridDb
         }
 
         /// <summary>
-        /// Selects the highest resolution asset and downloads it if needed.
+        ///     Selects the highest resolution asset and downloads it if needed.
         /// </summary>
         /// <param name="downloadHttp">HTTP client used for binary downloads.</param>
         /// <param name="assets">Candidate assets.</param>
@@ -250,7 +250,7 @@ namespace EpicSteamLauncher.Services.SteamGridDb
         }
 
         /// <summary>
-        /// Selects the best asset near a preferred aspect ratio and downloads it if needed.
+        ///     Selects the best asset near a preferred aspect ratio and downloads it if needed.
         /// </summary>
         /// <param name="downloadHttp">HTTP client used for binary downloads.</param>
         /// <param name="assets">Candidate assets.</param>
@@ -320,7 +320,7 @@ namespace EpicSteamLauncher.Services.SteamGridDb
         }
 
         /// <summary>
-        /// Downloads an individual asset and writes it into the Steam grid directory.
+        ///     Downloads an individual asset and writes it into the Steam grid directory.
         /// </summary>
         /// <param name="downloadHttp">HTTP client used for binary downloads.</param>
         /// <param name="url">Asset URL.</param>
@@ -359,7 +359,7 @@ namespace EpicSteamLauncher.Services.SteamGridDb
         }
 
         /// <summary>
-        /// Derives a supported local file extension from an asset URL.
+        ///     Derives a supported local file extension from an asset URL.
         /// </summary>
         /// <param name="uri">Asset URI.</param>
         /// <returns>Normalized extension for local storage.</returns>
@@ -386,4 +386,3 @@ namespace EpicSteamLauncher.Services.SteamGridDb
         }
     }
 }
-
