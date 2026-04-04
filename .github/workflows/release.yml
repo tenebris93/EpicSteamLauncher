@@ -1,0 +1,115 @@
+﻿# Release workflow for EpicSteamLauncher.
+# Uses internal GitSemVer validation to gate manual releases.
+
+name: Release (DotNet)
+
+on:
+  # Manual-only release flow to avoid accidental tag/push releases.
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      # Full checkout needed for GitSemVer branch + tag resolution.
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # Fetch remote main and tags so GitSemVer can compute from canonical refs.
+      - name: Fetch main + tags (GitSemVer)
+        shell: pwsh
+        run: |
+          git fetch --prune --tags origin +refs/heads/main:refs/remotes/origin/main
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+          cache: true
+          cache-dependency-path: |
+            Launcher/**/*.csproj
+            Launcher/**/*.props
+            Launcher/**/*.targets
+            Launcher/**/*.sln
+            Launcher/**/packages.lock.json
+
+      # Read the computed version string from GitSemVer output for release naming.
+      - name: Read internal GitSemVer version
+        id: gitsemver
+        shell: pwsh
+        run: |
+          $out = dotnet msbuild ./Launcher/EpicSteamLauncher/EpicSteamLauncher.csproj -nologo -v:m /t:GitSemVer_ComputeVersion
+          $m = [regex]::Match($out, 'Version=([0-9]+\.[0-9]+\.[0-9]+)')
+          if (-not $m.Success) {
+            throw "Could not parse Version from GitSemVer output."
+          }
+
+          $computedVersion = $m.Groups[1].Value
+          $computedTag = "v$computedVersion"
+          "version=$computedVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "tag=$computedTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Restore
+        run: dotnet restore ./Launcher/EpicSteamLauncher.sln
+
+      - name: Build (Release)
+        run: dotnet build ./Launcher/EpicSteamLauncher.sln -c Release --no-restore
+
+      - name: Test (Release)
+        run: dotnet test ./Launcher/EpicSteamLauncher.Tests/EpicSteamLauncher.Tests.csproj -c Release --no-build --no-restore
+
+      - name: Publish (win-x64 self-contained)
+        shell: pwsh
+        run: |
+          dotnet publish ./Launcher/EpicSteamLauncher/EpicSteamLauncher.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -o ./_release/publish/win-x64
+
+      # Produce a portable zip from the publish output for release upload.
+      - name: Package release zip
+        id: package
+        shell: pwsh
+        run: |
+          $zipName = "EpicSteamLauncher-win-x64-${{ steps.gitsemver.outputs.tag }}.zip"
+          $zipPath = Join-Path "${{ github.workspace }}\_release" $zipName
+
+          New-Item -ItemType Directory -Path "${{ github.workspace }}\_release" -Force | Out-Null
+          if (Test-Path $zipPath) {
+            Remove-Item -LiteralPath $zipPath -Force
+          }
+
+          Compress-Archive -Path "${{ github.workspace }}\_release\publish\win-x64\*" -DestinationPath $zipPath
+          "zip=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: EpicSteamLauncher-Release-${{ steps.gitsemver.outputs.tag }}
+          path: ${{ steps.package.outputs.zip }}
+          if-no-files-found: error
+
+      # Attach the packaged zip to a GitHub Release for the computed tag.
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.gitsemver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          files: |
+            ${{ steps.package.outputs.zip }}
+
+
+
+

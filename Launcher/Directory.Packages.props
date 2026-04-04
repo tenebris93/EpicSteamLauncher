@@ -1,8 +1,15 @@
 <Project>
+  <!--
+    Central package management:
+    - Project files declare package references without versions.
+    - Versions are defined once here for consistency across the solution.
+  -->
   <PropertyGroup>
+    <!-- Enables version centralization for all projects under Launcher/. -->
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
 
+  <!-- Shared package version catalog used by app and test projects. -->
   <ItemGroup>
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0"/>
     <PackageVersion Include="Newtonsoft.Json" Version="13.0.4"/>

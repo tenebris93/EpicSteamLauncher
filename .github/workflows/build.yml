@@ -1,47 +1,43 @@
-# PR/CI validation workflow for EpicSteamLauncher.
+﻿# Mainline build workflow for EpicSteamLauncher.
 # The .NET solution lives under Launcher/.
 
-name: PR Validation
+name: Main Build (DotNet)
 
 on:
-  # Run automatically for every pull request.
-  pull_request:
-  # Keep manual runs available for ad-hoc validation/re-runs.
+  push:
+    # Mainline CI for merged changes to main.
+    branches: [ main ]
+    # Rerun only when code/build tooling/workflows change.
+    paths:
+      - 'Launcher/**'
+      - 'CLI/**'
+      - '.github/workflows/**'
+  # Allow manual mainline validation from Actions tab.
   workflow_dispatch:
 
 concurrency:
-  group: pr-dotnet-${{ github.ref }}
-  cancel-in-progress: true
+  group: build-main-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
-  validate:
+  build-test:
     runs-on: windows-latest
 
     steps:
-      # Full history is required because GitSemVer reads branch/tag metadata.
+      # Full history is required for GitSemVer branch/tag lookups.
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          lfs: false
 
-      # Ensure main + tags are available locally for GitSemVer calculations in CI.
+      # Ensure remote main and tags exist locally for deterministic versioning.
       - name: Fetch main + tags (GitSemVer)
         shell: pwsh
         run: |
           git fetch --prune --tags origin +refs/heads/main:refs/remotes/origin/main
-
-      # Lint workflow YAML files so CI changes fail fast when malformed.
-      - name: Validate YAML (.github/)
-        uses: GrantBirki/json-yaml-validate@v4.0.0
-        with:
-          use_gitignore: false
-          base_dir: .github/
-          comment: true
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v5
@@ -55,11 +51,10 @@ jobs:
             Launcher/**/*.sln
             Launcher/**/packages.lock.json
 
-      # Restore once, then reuse packages for build/test steps.
       - name: Restore
         run: dotnet restore ./Launcher/EpicSteamLauncher.sln
 
-      # Verify the internal GitSemVer target resolves a version before compiling.
+      # Validate semantic version computation before build/test work begins.
       - name: Validate internal GitSemVer computes Version
         run: dotnet msbuild ./Launcher/EpicSteamLauncher/EpicSteamLauncher.csproj -nologo -v:m /t:GitSemVer_ComputeVersion
 
@@ -69,7 +64,12 @@ jobs:
       - name: Test (Release)
         run: dotnet test ./Launcher/EpicSteamLauncher.Tests/EpicSteamLauncher.Tests.csproj -c Release --no-build --no-restore
 
-      # Security visibility step: report vulnerable direct/transitive packages.
-      - name: NuGet vulnerability report (including transitive)
-        run: dotnet list ./Launcher/EpicSteamLauncher.sln package --vulnerable --include-transitive
+      # Upload compiled release outputs to simplify manual inspection/download.
+      - name: Upload build output artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: EpicSteamLauncher-Release
+          path: |
+            Launcher/EpicSteamLauncher/bin/Release/net8.0-windows/**
+          if-no-files-found: error
 
