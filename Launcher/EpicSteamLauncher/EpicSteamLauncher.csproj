@@ -5,7 +5,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <ApplicationIcon>epic-games-1200.ico</ApplicationIcon>
+    <ApplicationIcon>Images\epic_steam_launcher_icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
