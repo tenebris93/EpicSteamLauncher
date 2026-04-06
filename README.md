@@ -211,6 +211,31 @@ dotnet build "EpicSteamLauncher.sln"
 dotnet test "EpicSteamLauncher.Tests\EpicSteamLauncher.Tests.csproj"
 ```
 
+### Publish and run (recommended for Steam)
+
+```powershell
+Set-Location "D:\Development\Projects-VisualStudio\EpicSteamLauncher\Launcher"
+dotnet publish "EpicSteamLauncher\EpicSteamLauncher.csproj" -c Release -r win-x64 --self-contained true -o "..\_release\publish\win-x64"
+Set-Location "D:\Development\Projects-VisualStudio\EpicSteamLauncher\_release\publish\win-x64"
+.\EpicSteamLauncher.exe --wizard
+```
+
+---
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | Bad arguments / invalid command or launch URL |
+| `2` | Epic URL launch failed |
+| `3` | Timed out waiting for game process |
+| `4` | Profile not found / no profiles discovered for command |
+| `5` | Profile invalid |
+| `6` | Wizard failed |
+| `7` | Import failed |
+| `8` | Unexpected error |
+
 ---
 
 ## CI and Release Workflows
@@ -218,8 +243,8 @@ dotnet test "EpicSteamLauncher.Tests\EpicSteamLauncher.Tests.csproj"
 Current GitHub Actions behavior:
 
 - `pr.yml` (`PR Validation`): runs automatically on every pull request and can also be started manually.
-- `build.yml` (`Main Build (DotNet)`): runs on pushes to `main` when changes touch `Launcher/**`, `CLI/**`, or `.github/workflows/**`; also supports manual runs.
-- `release.yml` (`Release (DotNet)`): manual-only (`workflow_dispatch`).
+- `build.yml` (`Main Build`): runs on pushes to `main` when changes touch `Launcher/**`, `CLI/**`, or `.github/workflows/**`; also supports manual runs.
+- `release.yml` (`Release`): manual-only (`workflow_dispatch`).
 
 ### Manual release behavior
 
@@ -256,6 +281,36 @@ SteamGridDB artwork behavior:
 
 ---
 
+## Where Profiles Live
+
+- Profiles are created under `profiles` relative to the launcher executable location.
+- Effective path pattern: `<folder containing EpicSteamLauncher.exe>\profiles`.
+- If you run from `bin\Debug\net8.0-windows`, profiles are created there.
+- If you run from a published folder, profiles are created beside the published exe.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | What to do |
+|---------|--------------|------------|
+| `ERROR: Could not locate Steam install path.` | Steam registry path not found for current Windows user | Launch Steam once as the same user and retry `--sync-nonsteam` |
+| `ERROR: Could not locate a Steam userdata config directory.` | No valid `userdata\<steamId>\config` detected | Sign in to Steam and start a game once, then retry sync |
+| `ERROR: Could not find process '...' before timeout` | Process name mismatch or game startup delay | Re-check `GameProcessName`, retry launch, and use interactive diagnostics prompt when offered |
+| `Profile 'X' is invalid or could not be loaded.` | Missing file or invalid JSON/fields | Run `--validate-profiles` and fix the reported profile |
+| Artwork skipped during sync | Missing/invalid SteamGridDB key or service unavailable | Configure `steamgriddb.json` and rerun `--sync-nonsteam` |
+
+---
+
+## Known Limitations
+
+- Steam shortcut/artwork sync currently depends on Windows Steam registry detection and Steam userdata heuristics.
+- In multi-user or unusual Steam setups, the auto-selected userdata folder may not be the one you expect.
+- Process-tree waiting uses WMI for child process traversal; hardened systems can limit WMI visibility.
+- `--profile=` (empty equals value) is currently treated as bad arguments; use `--profile` for selector mode.
+
+---
+
 ## Inspiration
 
 This project was inspired by:
@@ -266,4 +321,4 @@ https://seanzwrites.com/posts/how-to-play-epic-games-on-steam-and-steamlink/
 
 ## License
 
-MIT License. See `LICENSE`.
+MIT License. See [LICENSE](LICENSE).
