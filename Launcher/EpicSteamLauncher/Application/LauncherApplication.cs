@@ -196,6 +196,11 @@ namespace EpicSteamLauncher.Application
             return ExitBadArgs;
         }
 
+        /// <summary>
+        ///     Determines whether the provided token is a command-style flag.
+        /// </summary>
+        /// <param name="token">Token value to classify.</param>
+        /// <returns><see langword="true" /> when the token starts with '-' or '/'; otherwise <see langword="false" />.</returns>
         private static bool IsFlag(string token)
         {
             if (string.IsNullOrWhiteSpace(token))
@@ -211,6 +216,9 @@ namespace EpicSteamLauncher.Application
         // Bootstrap / Main Menu
         // ---------------------------------------------------------------------
 
+        /// <summary>
+        ///     Ensures the profiles folder exists and initializes optional onboarding files.
+        /// </summary>
         private static void BootstrapProfilesFolder()
         {
             string profilesDir = GetProfilesDirectory();
@@ -274,6 +282,10 @@ namespace EpicSteamLauncher.Application
             Console.WriteLine();
         }
 
+        /// <summary>
+        ///     Displays the interactive main menu loop and executes selected actions.
+        /// </summary>
+        /// <returns>Process exit code.</returns>
         private static int ShowMainMenu()
         {
             var options = new List<MenuOption>
@@ -413,6 +425,10 @@ namespace EpicSteamLauncher.Application
         // Profiles: enumeration + validation
         // ---------------------------------------------------------------------
 
+        /// <summary>
+        ///     Enumerates candidate profile files from the profiles directory.
+        /// </summary>
+        /// <returns>Sequence of profile file paths excluding the generated example profile.</returns>
         private static IEnumerable<string> EnumerateCandidateProfileJsonFiles()
         {
             string dir = GetProfilesDirectory();
@@ -435,6 +451,13 @@ namespace EpicSteamLauncher.Application
             }
         }
 
+        /// <summary>
+        ///     Loads a profile from disk and validates its required fields.
+        /// </summary>
+        /// <param name="path">Profile file path.</param>
+        /// <param name="profile">Loaded and normalized profile on success.</param>
+        /// <param name="error">Validation or load error details on failure.</param>
+        /// <returns><see langword="true" /> when loading and validation succeed; otherwise <see langword="false" />.</returns>
         private static bool TryLoadAndValidateProfile(string path, out GameProfile? profile, out string? error)
         {
             profile = null;
@@ -466,6 +489,12 @@ namespace EpicSteamLauncher.Application
             return TryValidateAndNormalizeProfile(profile, out error);
         }
 
+        /// <summary>
+        ///     Validates profile data and normalizes values used by launcher flows.
+        /// </summary>
+        /// <param name="profile">Profile instance to validate.</param>
+        /// <param name="error">Validation error details when validation fails.</param>
+        /// <returns><see langword="true" /> when profile data is valid after normalization; otherwise <see langword="false" />.</returns>
         private static bool TryValidateAndNormalizeProfile(GameProfile? profile, out string? error)
         {
             error = null;
@@ -525,6 +554,10 @@ namespace EpicSteamLauncher.Application
             return true;
         }
 
+        /// <summary>
+        ///     Collects and sorts valid profiles discovered on disk.
+        /// </summary>
+        /// <returns>Sorted list of valid profiles.</returns>
         private static List<DiscoveredProfile> GetValidProfiles()
         {
             var results = new List<DiscoveredProfile>();
@@ -542,6 +575,10 @@ namespace EpicSteamLauncher.Application
             return results.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
+        /// <summary>
+        ///     Displays profile selection and launches the chosen profile when selected.
+        /// </summary>
+        /// <returns>Process exit code.</returns>
         private static int ProfilesSelectorScreen()
         {
             var profiles = GetValidProfiles();
@@ -578,6 +615,10 @@ namespace EpicSteamLauncher.Application
             return LaunchFromProfileName(chosenName);
         }
 
+        /// <summary>
+        ///     Validates all candidate profiles and prints a report to the console.
+        /// </summary>
+        /// <returns>Validation command exit code.</returns>
         private static int ValidateProfilesReport()
         {
             string dir = GetProfilesDirectory();
@@ -626,6 +667,11 @@ namespace EpicSteamLauncher.Application
             return invalidCount == 0 ? ExitSuccess : ExitProfileInvalid;
         }
 
+        /// <summary>
+        ///     Discovers installed Epic games and writes missing profile files.
+        /// </summary>
+        /// <param name="writeConsoleReport">Whether to print per-game import details.</param>
+        /// <returns>Import command exit code.</returns>
         private static int ImportInstalledEpicGames(bool writeConsoleReport)
         {
             try
@@ -761,6 +807,10 @@ namespace EpicSteamLauncher.Application
             }
         }
 
+        /// <summary>
+        ///     Aggregates installed Epic game records from supported launcher data sources.
+        /// </summary>
+        /// <returns>Deduplicated installed game list.</returns>
         private static List<EpicInstalledGame> DiscoverInstalledEpicGames()
         {
             var results = new List<EpicInstalledGame>();
@@ -785,6 +835,10 @@ namespace EpicSteamLauncher.Application
             return deduped;
         }
 
+        /// <summary>
+        ///     Reads installed game metadata from Epic <c>.item</c> manifest files.
+        /// </summary>
+        /// <returns>Games discovered from manifest files.</returns>
         private static List<EpicInstalledGame> ReadEpicItemManifests()
         {
             var games = new List<EpicInstalledGame>();
@@ -836,6 +890,10 @@ namespace EpicSteamLauncher.Application
             return games;
         }
 
+        /// <summary>
+        ///     Reads installed game metadata from <c>LauncherInstalled.dat</c>.
+        /// </summary>
+        /// <returns>Games discovered from launcher installation metadata.</returns>
         private static List<EpicInstalledGame> ReadLauncherInstalledDat()
         {
             var games = new List<EpicInstalledGame>();
@@ -886,6 +944,11 @@ namespace EpicSteamLauncher.Application
             return games;
         }
 
+        /// <summary>
+        ///     Builds a best-effort Epic launch URI for a discovered game.
+        /// </summary>
+        /// <param name="game">Installed game metadata.</param>
+        /// <returns>Epic launch URI.</returns>
         private static string BuildEpicLaunchUrl(EpicInstalledGame game)
         {
             if (!string.IsNullOrWhiteSpace(game.AppName))
@@ -897,6 +960,11 @@ namespace EpicSteamLauncher.Application
             return "com.epicgames.launcher://apps/YourGameId?action=launch&silent=true";
         }
 
+        /// <summary>
+        ///     Produces an initial process-name guess from discovered game metadata.
+        /// </summary>
+        /// <param name="game">Installed game metadata.</param>
+        /// <returns>Normalized process name guess.</returns>
         private static string GuessProcessName(EpicInstalledGame game)
         {
             if (!string.IsNullOrWhiteSpace(game.LaunchExecutable))
@@ -925,6 +993,11 @@ namespace EpicSteamLauncher.Application
             return "GameProcessNameWithoutExe";
         }
 
+        /// <summary>
+        ///     Syncs valid launcher profiles into Steam non-Steam shortcuts and optional artwork assets.
+        /// </summary>
+        /// <param name="interactive">Whether to prompt for interactive decisions during sync.</param>
+        /// <returns>Sync command exit code.</returns>
         private static int SyncNonSteamShortcutsFromProfiles(bool interactive)
         {
             // -----------------------------
@@ -1217,6 +1290,11 @@ namespace EpicSteamLauncher.Application
         }
 
         // Helper for quoting Steam shortcut fields
+        /// <summary>
+        ///     Wraps a value in quotes unless already quoted.
+        /// </summary>
+        /// <param name="value">Value to quote.</param>
+        /// <returns>Quoted value.</returns>
         private static string Quote(string value)
         {
             if (string.IsNullOrEmpty(value))
@@ -1232,6 +1310,10 @@ namespace EpicSteamLauncher.Application
             return $"\"{value}\"";
         }
 
+        /// <summary>
+        ///     Attempts to open a file path with the shell default handler.
+        /// </summary>
+        /// <param name="filePath">File path to open.</param>
         private static void TryOpenFile(string filePath)
         {
             try
@@ -1250,6 +1332,13 @@ namespace EpicSteamLauncher.Application
             }
         }
 
+        /// <summary>
+        ///     Reads a numeric menu choice within the provided range.
+        /// </summary>
+        /// <param name="min">Minimum accepted value.</param>
+        /// <param name="max">Maximum accepted value.</param>
+        /// <param name="defaultChoice">Fallback value when input is empty.</param>
+        /// <returns>Validated numeric choice.</returns>
         private static int ReadMenuChoice(int min, int max, int defaultChoice)
         {
             while (true)
@@ -1271,6 +1360,12 @@ namespace EpicSteamLauncher.Application
             }
         }
 
+        /// <summary>
+        ///     Reads a string-like value from a nested JSON object path.
+        /// </summary>
+        /// <param name="obj">Root JSON object.</param>
+        /// <param name="path">Property path segments.</param>
+        /// <returns>Resolved string value, or <see langword="null" /> when unavailable.</returns>
         private static string? ReadString(JObject? obj, params string[]? path)
         {
             if (obj == null || path == null || path.Length == 0)
@@ -1298,18 +1393,31 @@ namespace EpicSteamLauncher.Application
             return current.Type == JTokenType.String ? current.Value<string>() : current.ToString();
         }
 
+        /// <summary>
+        ///     Gets the Epic manifest directory under ProgramData.
+        /// </summary>
+        /// <returns>Manifest directory path.</returns>
         private static string GetEpicManifestsDirectory()
         {
             string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
             return Path.Combine(programData, "Epic", "EpicGamesLauncher", "Data", "Manifests");
         }
 
+        /// <summary>
+        ///     Gets the expected <c>LauncherInstalled.dat</c> path under ProgramData.
+        /// </summary>
+        /// <returns>Metadata file path.</returns>
         private static string GetLauncherInstalledDatPath()
         {
             string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
             return Path.Combine(programData, "Epic", "UnrealEngineLauncher", "LauncherInstalled.dat");
         }
 
+        /// <summary>
+        ///     Converts a profile name into a filesystem-safe file name.
+        /// </summary>
+        /// <param name="name">Source name.</param>
+        /// <returns>Sanitized file name.</returns>
         private static string MakeSafeFileName(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
@@ -1335,6 +1443,9 @@ namespace EpicSteamLauncher.Application
         // Wizard
         // ---------------------------------------------------------------------
 
+        /// <summary>
+        ///     Runs the interactive profile creation wizard.
+        /// </summary>
         private static void RunWizard()
         {
             string profilesDir = GetProfilesDirectory();
@@ -1543,6 +1654,11 @@ namespace EpicSteamLauncher.Application
             }
         }
 
+        /// <summary>
+        ///     Reads a yes/no response from console input.
+        /// </summary>
+        /// <param name="defaultIsNo">Whether an empty response maps to no.</param>
+        /// <returns><see langword="true" /> for yes responses; otherwise <see langword="false" />.</returns>
         private static bool ReadYesNo(bool defaultIsNo)
         {
             string input = (Console.ReadLine() ?? string.Empty).Trim();
@@ -1560,6 +1676,11 @@ namespace EpicSteamLauncher.Application
         // Profile launching
         // ---------------------------------------------------------------------
 
+        /// <summary>
+        ///     Loads and launches a profile by profile name.
+        /// </summary>
+        /// <param name="profileName">Profile file name without extension.</param>
+        /// <returns>Launch command exit code.</returns>
         private static int LaunchFromProfileName(string profileName)
         {
             if (string.IsNullOrWhiteSpace(profileName))
@@ -1602,6 +1723,17 @@ namespace EpicSteamLauncher.Application
             );
         }
 
+        /// <summary>
+        ///     Launches an Epic URL, detects the game process, and blocks until process tree exit.
+        /// </summary>
+        /// <param name="epicUrl">Epic launch URI.</param>
+        /// <param name="exeName">Expected game process name.</param>
+        /// <param name="timeoutSeconds">Detection timeout in seconds.</param>
+        /// <param name="pollIntervalMs">Polling interval in milliseconds.</param>
+        /// <param name="launchDelayMs">Delay before process scanning in milliseconds.</param>
+        /// <param name="profilePathForDiagnostics">Profile path used for diagnostics updates.</param>
+        /// <param name="profileForDiagnostics">Profile model used for diagnostics updates.</param>
+        /// <returns>Launch workflow exit code.</returns>
         private static int Launch(
             string epicUrl,
             string exeName,
@@ -1737,6 +1869,11 @@ namespace EpicSteamLauncher.Application
             return ExitProcessNotFound;
         }
 
+        /// <summary>
+        ///     Parses command-line arguments into normalized launcher command metadata.
+        /// </summary>
+        /// <param name="args">Raw command-line arguments.</param>
+        /// <returns>Normalized parsed arguments.</returns>
         private static ParsedArgs ParseArgs(string[] args)
         {
             bool pause = false;
@@ -1842,6 +1979,12 @@ namespace EpicSteamLauncher.Application
             );
         }
 
+        /// <summary>
+        ///     Ensures a directory exists.
+        /// </summary>
+        /// <param name="path">Directory path.</param>
+        /// <param name="error">Error details when creation fails.</param>
+        /// <returns><see langword="true" /> when the directory exists or was created; otherwise <see langword="false" />.</returns>
         private static bool TryEnsureDirectory(string path, out string? error)
         {
             try
@@ -1857,6 +2000,12 @@ namespace EpicSteamLauncher.Application
             }
         }
 
+        /// <summary>
+        ///     Validates that a directory is writable by creating and deleting a probe file.
+        /// </summary>
+        /// <param name="path">Directory path.</param>
+        /// <param name="error">Error details when write validation fails.</param>
+        /// <returns><see langword="true" /> when the directory is writable; otherwise <see langword="false" />.</returns>
         private static bool IsDirectoryWritable(string path, out string? error)
         {
             try
@@ -1940,6 +2089,14 @@ namespace EpicSteamLauncher.Application
             }
         }
 
+        /// <summary>
+        ///     Serializes a value to JSON and writes it atomically to disk.
+        /// </summary>
+        /// <typeparam name="T">Value type being serialized.</typeparam>
+        /// <param name="path">Destination file path.</param>
+        /// <param name="value">Value to serialize.</param>
+        /// <param name="error">Error details when writing fails.</param>
+        /// <returns><see langword="true" /> when serialization and writing succeed; otherwise <see langword="false" />.</returns>
         private static bool TryWriteJsonAtomic<T>(string path, T value, out string? error)
         {
             try
@@ -1956,6 +2113,11 @@ namespace EpicSteamLauncher.Application
             }
         }
 
+        /// <summary>
+        ///     Validates whether a URI matches supported Epic launcher launch forms.
+        /// </summary>
+        /// <param name="uri">URI string to validate.</param>
+        /// <returns><see langword="true" /> when the URI is an allowed Epic launch endpoint; otherwise <see langword="false" />.</returns>
         private static bool IsAllowedEpicUri(string uri)
         {
             if (string.IsNullOrWhiteSpace(uri))
@@ -1989,6 +2151,10 @@ namespace EpicSteamLauncher.Application
             return u.Query.Contains("action=launch", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        ///     Determines whether interactive console input is available.
+        /// </summary>
+        /// <returns><see langword="true" /> when prompts can be shown; otherwise <see langword="false" />.</returns>
         private static bool IsInteractiveConsole()
         {
             try
@@ -2002,6 +2168,11 @@ namespace EpicSteamLauncher.Application
             }
         }
 
+        /// <summary>
+        ///     Safely retrieves processes by name and returns an empty array on failures.
+        /// </summary>
+        /// <param name="exeName">Process name without extension.</param>
+        /// <returns>Matching process array, or an empty array when enumeration fails.</returns>
         private static Process[] SafeGetProcessesByName(string exeName)
         {
             try
@@ -2014,6 +2185,10 @@ namespace EpicSteamLauncher.Application
             }
         }
 
+        /// <summary>
+        ///     Captures current process IDs and best-effort start times for diagnostics baselining.
+        /// </summary>
+        /// <returns>Map of process ID to optional local start time.</returns>
         private static Dictionary<int, DateTime?> CaptureAllProcessStartTimes()
         {
             var map = new Dictionary<int, DateTime?>();
@@ -2045,6 +2220,14 @@ namespace EpicSteamLauncher.Application
             return map;
         }
 
+        /// <summary>
+        ///     Runs diagnostics candidate discovery and lets the user choose a process name.
+        /// </summary>
+        /// <param name="baselineAll">Baseline process map captured before launch.</param>
+        /// <param name="launchStartLocal">Launch start local time.</param>
+        /// <param name="minStartTimeLocal">Minimum candidate start-time threshold.</param>
+        /// <param name="installLocationHint">Optional install-location hint used for candidate ranking.</param>
+        /// <returns>Selected process name, or <see langword="null" /> when canceled or unavailable.</returns>
         private static string? RunDiagnosticsPickProcessName(
             Dictionary<int, DateTime?> baselineAll,
             DateTime launchStartLocal,
@@ -2105,6 +2288,13 @@ namespace EpicSteamLauncher.Application
             return candidates[selected - 1].ProcessName;
         }
 
+        /// <summary>
+        ///     Collects newly started process candidates for diagnostics fallback selection.
+        /// </summary>
+        /// <param name="baselineAll">Baseline process map captured before launch.</param>
+        /// <param name="minStartTimeLocal">Minimum candidate start-time threshold.</param>
+        /// <param name="installLocationHint">Optional install-location hint used for scoring.</param>
+        /// <returns>Sorted list of process candidates.</returns>
         private static List<ProcessCandidate> CollectNewProcessCandidates(
             Dictionary<int, DateTime?> baselineAll,
             DateTime minStartTimeLocal,
@@ -2203,6 +2393,11 @@ namespace EpicSteamLauncher.Application
             return results;
         }
 
+        /// <summary>
+        ///     Attempts to read a process executable path.
+        /// </summary>
+        /// <param name="process">Process to inspect.</param>
+        /// <returns>Executable path when available; otherwise an empty string.</returns>
         private static string TryGetProcessExePath(Process process)
         {
             try
@@ -2216,6 +2411,11 @@ namespace EpicSteamLauncher.Application
             }
         }
 
+        /// <summary>
+        ///     Normalizes a directory path for case-insensitive prefix comparisons.
+        /// </summary>
+        /// <param name="dir">Directory path to normalize.</param>
+        /// <returns>Normalized path with trailing separator, or an empty string on failure.</returns>
         private static string NormalizeDirectory(string dir)
         {
             if (string.IsNullOrWhiteSpace(dir))
@@ -2234,6 +2434,12 @@ namespace EpicSteamLauncher.Application
             }
         }
 
+        /// <summary>
+        ///     Checks whether a candidate path is under a normalized root directory.
+        /// </summary>
+        /// <param name="candidatePath">Candidate file path.</param>
+        /// <param name="rootDirNormalized">Normalized root directory with trailing separator.</param>
+        /// <returns><see langword="true" /> when the candidate path is under the root; otherwise <see langword="false" />.</returns>
         private static bool IsPathUnderRoot(string candidatePath, string rootDirNormalized)
         {
             if (string.IsNullOrWhiteSpace(candidatePath) || string.IsNullOrWhiteSpace(rootDirNormalized))
@@ -2252,6 +2458,12 @@ namespace EpicSteamLauncher.Application
             }
         }
 
+        /// <summary>
+        ///     Updates and persists a profile's process name after diagnostics confirmation.
+        /// </summary>
+        /// <param name="profilePath">Profile file path.</param>
+        /// <param name="profile">Profile instance to update.</param>
+        /// <param name="newProcessName">Process name selected by diagnostics.</param>
         private static void TryUpdateProfileProcessName(string profilePath, GameProfile profile, string newProcessName)
         {
             try
@@ -2274,6 +2486,11 @@ namespace EpicSteamLauncher.Application
             }
         }
 
+        /// <summary>
+        ///     Captures process IDs currently matching a process name baseline.
+        /// </summary>
+        /// <param name="exeName">Process name without extension.</param>
+        /// <returns>Set of matching process IDs at capture time.</returns>
         private static HashSet<int> CaptureExistingProcessIds(string exeName)
         {
             var set = new HashSet<int>();
@@ -2300,6 +2517,13 @@ namespace EpicSteamLauncher.Application
             return set;
         }
 
+        /// <summary>
+        ///     Selects the best candidate process considered newly started after launch.
+        /// </summary>
+        /// <param name="matches">Current matching processes.</param>
+        /// <param name="baselinePids">Process IDs known before launch.</param>
+        /// <param name="minStartTimeLocal">Minimum candidate start-time threshold.</param>
+        /// <returns>Best new process candidate, or <see langword="null" /> when none qualify.</returns>
         private static Process? SelectBestNewProcess(Process[]? matches, HashSet<int> baselinePids, DateTime minStartTimeLocal)
         {
             if (matches == null || matches.Length == 0)
@@ -2363,6 +2587,11 @@ namespace EpicSteamLauncher.Application
             ).First().Proc;
         }
 
+        /// <summary>
+        ///     Selects the newest process from a set when start times are accessible.
+        /// </summary>
+        /// <param name="matches">Process candidates.</param>
+        /// <returns>Newest process candidate, or <see langword="null" /> when none can be evaluated.</returns>
         private static Process? SelectNewestProcessIfPossible(Process[] matches)
         {
             var bestTime = DateTime.MinValue;
@@ -2387,6 +2616,11 @@ namespace EpicSteamLauncher.Application
             return best;
         }
 
+        /// <summary>
+        ///     Reads process start time using best-effort error handling.
+        /// </summary>
+        /// <param name="process">Process to inspect.</param>
+        /// <returns>Local start time when available; otherwise <see langword="null" />.</returns>
         private static DateTime? TryGetStartTimeLocal(Process process)
         {
             try
@@ -2399,6 +2633,10 @@ namespace EpicSteamLauncher.Application
             }
         }
 
+        /// <summary>
+        ///     Waits until a root process and its discovered child processes have exited.
+        /// </summary>
+        /// <param name="rootPid">Root process identifier.</param>
         private static void WaitForProcessTreeExit(int rootPid)
         {
             // Track PID + (optional) start time to avoid PID-reuse hangs.
@@ -2436,6 +2674,7 @@ namespace EpicSteamLauncher.Application
                 Thread.Sleep(500);
             }
 
+            // Local helper that safely captures a process start time by PID.
             static DateTime? TryGetStartTimeLocalSafe(int pid)
             {
                 try
@@ -2455,6 +2694,7 @@ namespace EpicSteamLauncher.Application
                 }
             }
 
+            // Local helper that treats PID reuse as process replacement rather than continuity.
             static bool IsSameProcessInstanceStillRunning(int pid, DateTime? expectedStartLocal)
             {
                 try
@@ -2496,11 +2736,18 @@ namespace EpicSteamLauncher.Application
             }
         }
 
+        /// <summary>
+        ///     Gets the profiles directory path under the launcher base directory.
+        /// </summary>
+        /// <returns>Profiles directory path.</returns>
         private static string GetProfilesDirectory()
         {
             return Path.Combine(AppContext.BaseDirectory, ProfilesFolderName);
         }
 
+        /// <summary>
+        ///     Prints command usage and profile workflow help text.
+        /// </summary>
         private static void PrintUsage()
         {
             Console.WriteLine("EpicSteamLauncher Usage:");
@@ -2518,6 +2765,11 @@ namespace EpicSteamLauncher.Application
             Console.WriteLine("  EpicSteamLauncher.exe \"<EpicLaunchUrl>\" <GameExeName>");
         }
 
+        /// <summary>
+        ///     Retrieves direct child process IDs for a parent process using WMI.
+        /// </summary>
+        /// <param name="parentPid">Parent process identifier.</param>
+        /// <returns>Set of child process IDs.</returns>
         private static HashSet<int> GetChildProcessIds(int parentPid)
         {
             var children = new HashSet<int>();
@@ -2543,6 +2795,11 @@ namespace EpicSteamLauncher.Application
             return children;
         }
 
+        /// <summary>
+        ///     Normalizes a process token by trimming and removing a trailing <c>.exe</c> suffix.
+        /// </summary>
+        /// <param name="raw">Raw process token.</param>
+        /// <returns>Normalized process name.</returns>
         private static string NormalizeProcessName(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw))
@@ -2560,6 +2817,11 @@ namespace EpicSteamLauncher.Application
             return name;
         }
 
+        /// <summary>
+        ///     Reads an integer from console input and falls back to a default value.
+        /// </summary>
+        /// <param name="defaultValue">Default value when input is empty or invalid.</param>
+        /// <returns>Parsed integer or the default value.</returns>
         private static int ReadIntOrDefault(int defaultValue)
         {
             string input = (Console.ReadLine() ?? string.Empty).Trim();
@@ -2572,6 +2834,10 @@ namespace EpicSteamLauncher.Application
             return int.TryParse(input, out int value) ? value : defaultValue;
         }
 
+        /// <summary>
+        ///     Attempts to open a folder in the system shell.
+        /// </summary>
+        /// <param name="folderPath">Folder path to open.</param>
         private static void TryOpenFolderInExplorer(string folderPath)
         {
             try
@@ -2590,6 +2856,12 @@ namespace EpicSteamLauncher.Application
             }
         }
 
+        /// <summary>
+        ///     Finds an existing downloaded icon path for a shortcut app ID.
+        /// </summary>
+        /// <param name="gridFolderPath">Steam grid folder path.</param>
+        /// <param name="appId">Shortcut app ID.</param>
+        /// <returns>Absolute icon path when found; otherwise <see langword="null" />.</returns>
         private static string? FindExistingIconPath(string gridFolderPath, uint appId)
         {
             // We download icons from SGDB as "{appid}_icon.png" (preferred),
@@ -2603,6 +2875,11 @@ namespace EpicSteamLauncher.Application
                 .FirstOrDefault();
         }
 
+        /// <summary>
+        ///     Builds the default README content for the profiles directory.
+        /// </summary>
+        /// <param name="profilesDir">Profiles directory path shown in the README.</param>
+        /// <returns>README text content.</returns>
         private static string BuildProfilesReadmeText(string profilesDir)
         {
             return
@@ -2634,6 +2911,9 @@ Notes:
 ";
         }
 
+        /// <summary>
+        ///     Pauses on exit when configured and interactive input is available.
+        /// </summary>
         private static void PauseIfInteractive()
         {
             try
