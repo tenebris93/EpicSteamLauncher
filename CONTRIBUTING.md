@@ -67,9 +67,9 @@ Notes:
 
 Commit subjects are checked by:
 
-- `.github/workflows/commit-message-lint.yml` on pull requests and pushes to `main`
+- `.github/workflows/pr.yml` (`PR Validation`) on pull requests
 - `.github/workflows/release.yml` before release notes are generated
 - `.github/scripts/policy/validate-commit-messages.ps1` as the shared validation script used by both workflows
 
-To make this mandatory in GitHub, set `Commit Message Lint / lint` as a required status check in branch protection for `main`.
+To make this mandatory in GitHub, set `PR Validation / validate` as a required status check in branch protection for `main`.
 
