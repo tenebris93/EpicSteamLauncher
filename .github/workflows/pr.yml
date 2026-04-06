@@ -35,6 +35,34 @@ jobs:
         run: |
           git fetch --prune --tags origin +refs/heads/main:refs/remotes/origin/main
 
+      # Why: Commit-message policy should be enforced as part of PR Validation.
+      - name: Resolve commit range for lint
+        if: github.event_name == 'pull_request'
+        id: range
+        shell: bash
+        run: |
+          echo "value=origin/${{ github.base_ref }}...HEAD" >> "$GITHUB_OUTPUT"
+
+      # Why: Base branch is required locally for accurate PR commit-range comparison.
+      - name: Fetch base branch for commit lint
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          git fetch --prune origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+
+      # Why: Fail fast on non-compliant commit messages before restore/build/test work.
+      - name: Validate commit messages
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        run: |
+          $range = "${{ steps.range.outputs.value }}"
+          $prTitle = "${{ github.event.pull_request.title }}"
+          & ./.github/scripts/policy/validate-commit-messages.ps1 -Range $range -PrTitle $prTitle
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
       # Why: Fail fast when workflow YAML is malformed.
       - name: Validate workflow YAML files
         uses: GrantBirki/json-yaml-validate@v4.0.0

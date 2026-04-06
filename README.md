@@ -61,8 +61,15 @@ EpicSteamLauncher.exe --wizard
 - `Launcher/EpicSteamLauncher.sln` - Solution file.
 - `Launcher/Directory.Packages.props` - Central package versions.
 - `Launcher/Directory.Build.targets` - Internal GitSemVer version computation.
-- `CLI/PowerShell/Validate-SemVerTag.ps1` - SemVer validation helper used by release automation.
+- `.github/scripts/versioning/validate-semver-tag.ps1` - SemVer validation helper used by release automation.
 - `.github/workflows/` - CI and release workflows (`pr.yml`, `build.yml`, `release.yml`).
+
+---
+
+## Contributing
+
+- See `CONTRIBUTING.md` for contribution policy and required commit message format.
+- Commit type definitions and examples are documented in `CONTRIBUTING.md#conventional-commit-type-guide`.
 
 ---
 
@@ -243,7 +250,7 @@ Set-Location "D:\Development\Projects-VisualStudio\EpicSteamLauncher\_release\pu
 Current GitHub Actions behavior:
 
 - `pr.yml` (`PR Validation`): runs automatically on every pull request and can also be started manually.
-- `build.yml` (`Main Build`): runs on pushes to `main` when changes touch `Launcher/**`, `CLI/**`, or `.github/workflows/**`; also supports manual runs.
+- `build.yml` (`Main Build`): runs on pushes to `main` when changes touch `Launcher/**`, `.github/scripts/**`, or `.github/workflows/**`; also supports manual runs.
 - `release.yml` (`Release`): manual-only (`workflow_dispatch`).
 
 ### Manual release behavior

@@ -59,6 +59,155 @@ jobs:
           "version=$computedVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "tag=$computedTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
+      # Why: Build changelog range against the most recent existing release tag.
+      - name: Find previous release tag
+        id: prevtag
+        shell: pwsh
+        run: |
+          $currentTag = "${{ steps.gitsemver.outputs.tag }}"
+          $previousTag = git tag --merged HEAD --list "v*" --sort=-version:refname |
+            Where-Object { $_ -and $_ -ne $currentTag } |
+            Select-Object -First 1
+
+          if (-not $previousTag) {
+            $previousTag = ""
+          }
+
+          "value=$previousTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      # Why: Enforce commit subject format for releases when a previous release exists.
+      - name: Validate release commit messages
+        shell: pwsh
+        run: |
+          $previousTag = "${{ steps.prevtag.outputs.value }}"
+
+          if ([string]::IsNullOrWhiteSpace($previousTag)) {
+            Write-Host "No previous tag found; skipping commit lint for initial release snapshot."
+            exit 0
+          }
+
+          $range = "$previousTag..HEAD"
+          & ./.github/scripts/policy/validate-commit-messages.ps1 -Range $range
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      # Why: Publish explicit, grouped commits with hashes instead of generic auto-notes.
+      - name: Generate release changelog
+        id: releasenotes
+        shell: pwsh
+        env:
+          CURRENT_TAG: ${{ steps.gitsemver.outputs.tag }}
+          CURRENT_VERSION: ${{ steps.gitsemver.outputs.version }}
+          PREVIOUS_TAG: ${{ steps.prevtag.outputs.value }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repoUrl = "https://github.com/$env:GITHUB_REPOSITORY"
+          $currentTag = $env:CURRENT_TAG
+          $currentVersion = $env:CURRENT_VERSION
+          $previousTag = $env:PREVIOUS_TAG
+
+          New-Item -ItemType Directory -Path "${{ github.workspace }}\_release" -Force | Out-Null
+          $notesPath = "${{ github.workspace }}\_release\release-notes.md"
+
+          $range = if ([string]::IsNullOrWhiteSpace($previousTag)) { "HEAD" } else { "$previousTag..HEAD" }
+
+          $logLines = git --no-pager log $range --no-merges --pretty=format:"%H%x09%h%x09%s%x09%an"
+          $commits = @()
+
+          if ($logLines) {
+            foreach ($line in $logLines) {
+              $parts = $line -split "`t", 4
+              if ($parts.Length -lt 4) {
+                continue
+              }
+
+              $fullSha = $parts[0]
+              $shortSha = $parts[1]
+              $subject = $parts[2].Trim()
+              $author = $parts[3].Trim()
+              $type = "other"
+              $displaySubject = $subject
+
+              if ($subject -match '^(?<type>feat|fix|perf|refactor|docs|test|chore)(\([^)]+\))?(!)?:\s*(?<rest>.+)$') {
+                $type = $Matches.type.ToLowerInvariant()
+                $displaySubject = $Matches.rest.Trim()
+              }
+
+              $commits += [pscustomobject]@{
+                Type = $type
+                Subject = $displaySubject
+                ShortSha = $shortSha
+                FullSha = $fullSha
+                Author = $author
+              }
+            }
+          }
+
+          $sections = @(
+            @{ Key = "feat"; Title = "Features" },
+            @{ Key = "fix"; Title = "Fixes" },
+            @{ Key = "perf"; Title = "Performance" },
+            @{ Key = "refactor"; Title = "Refactors" },
+            @{ Key = "docs"; Title = "Documentation" },
+            @{ Key = "test"; Title = "Tests" },
+            @{ Key = "chore"; Title = "Chores" },
+            @{ Key = "other"; Title = "Other Changes" }
+          )
+
+          $lines = New-Object System.Collections.Generic.List[string]
+          $lines.Add("# EpicSteamLauncher $currentTag")
+          $lines.Add("")
+          $lines.Add("Version: **$currentVersion**")
+          $lines.Add("Date: $(Get-Date -Format 'yyyy-MM-dd')")
+
+          if ([string]::IsNullOrWhiteSpace($previousTag)) {
+            $lines.Add("Range: initial release snapshot")
+          }
+          else {
+            $lines.Add(('Range: `{0}`' -f "$previousTag..HEAD"))
+          }
+
+          $lines.Add("")
+
+          if (-not $commits -or $commits.Count -eq 0) {
+            $lines.Add("No commits found in release range.")
+          }
+          else {
+            foreach ($section in $sections) {
+              $items = $commits | Where-Object { $_.Type -eq $section.Key }
+              if (-not $items -or $items.Count -eq 0) {
+                continue
+              }
+
+              $lines.Add("## $($section.Title)")
+
+              foreach ($item in $items) {
+                $commitUrl = "$repoUrl/commit/$($item.FullSha)"
+                $lines.Add(('- `{0}` {1} - {2} ([commit]({3}))' -f $item.ShortSha, $item.Subject, $item.Author, $commitUrl))
+              }
+
+              $lines.Add("")
+            }
+          }
+
+          [System.IO.File]::WriteAllLines($notesPath, $lines, [System.Text.UTF8Encoding]::new($false))
+          "path=$notesPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Validate release notes file
+        shell: pwsh
+        run: |
+          $path = "${{ steps.releasenotes.outputs.path }}"
+          if (-not (Test-Path -LiteralPath $path)) {
+            throw "Release notes file was not created: $path"
+          }
+
+          $lineCount = (Get-Content -LiteralPath $path | Measure-Object).Count
+          if ($lineCount -lt 4) {
+            throw "Release notes file looks empty: $path"
+          }
+
       - name: Restore NuGet packages
         run: dotnet restore ./Launcher/EpicSteamLauncher.sln
 
@@ -106,7 +255,8 @@ jobs:
         with:
           tag_name: ${{ steps.gitsemver.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          generate_release_notes: true
+          generate_release_notes: false
+          body_path: ${{ steps.releasenotes.outputs.path }}
           files: |
             ${{ steps.package.outputs.zip }}
 
