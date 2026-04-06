@@ -10,7 +10,7 @@ on:
     # Rerun only when code/build tooling/workflows change.
     paths:
       - 'Launcher/**'
-      - 'CLI/**'
+      - '.github/scripts/**'
       - '.github/workflows/**'
   # Allow manual mainline validation from Actions tab.
   workflow_dispatch:

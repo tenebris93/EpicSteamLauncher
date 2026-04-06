@@ -1,0 +1,60 @@
+﻿name: Commit Message Lint
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Determine commit range
+        id: range
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "value=origin/${{ github.base_ref }}...HEAD" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.sha }}"
+
+          if [[ "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
+            echo "value=HEAD~1..$AFTER" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=$BEFORE..$AFTER" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch base branch for PR comparison
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          git fetch --prune origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+
+      - name: Validate commit messages
+        shell: pwsh
+        run: |
+          $range = "${{ steps.range.outputs.value }}"
+
+          if ("${{ github.event_name }}" -eq "pull_request") {
+            $prTitle = "${{ github.event.pull_request.title }}"
+            & ./.github/scripts/policy/validate-commit-messages.ps1 -Range $range -PrTitle $prTitle
+            exit $LASTEXITCODE
+          }
+
+          & ./.github/scripts/policy/validate-commit-messages.ps1 -Range $range
+          exit $LASTEXITCODE
+
